@@ -10,9 +10,15 @@ companion to the client's **wxl-mount-anim** module:
 | descending | 380%  |
 
 `wxl-mount-anim` already animates the mount as climbing / gliding / diving, so the two agree: wings
-beat slowly on the way up, the glide rushes on the way down. Changing state eases the speed over
-about 5.5 seconds, so pulling out of a dive into a climb bleeds off speed gradually instead of
-snapping.
+beat slowly on the way up, the glide rushes on the way down. The speed does not snap between states:
+
+- **Diving** accelerates. The speed builds into `DescendSpeed` over `DiveMs`, faster and faster as
+  the dive goes on.
+- **Diving, then leveling** is a long glide over `GlideMs`. The mount keeps most of its dive speed
+  at first and only bleeds it off hard near the end, before settling back to `LevelSpeed`.
+- **Diving, then climbing** brakes over the shorter `ClimbDecelMs`, so pulling up sheds speed sooner
+  than leveling would.
+- Every other change blends over `BlendMs`, spread over how far the speed has to move.
 
 ## How it binds to the client module
 
@@ -56,13 +62,16 @@ ManaSpeedFlying.Enable       = 1
 ManaSpeedFlying.ClimbSpeed   = 2.0    ; 200%
 ManaSpeedFlying.LevelSpeed   = 2.8    ; 280%
 ManaSpeedFlying.DescendSpeed = 3.8    ; 380%
-ManaSpeedFlying.BlendMs      = 5500   ; full climb <-> descend span
+ManaSpeedFlying.BlendMs      = 5500   ; default blend, proportional to the span it covers
+ManaSpeedFlying.DiveMs       = 4000   ; accelerate into a dive
+ManaSpeedFlying.GlideMs      = 9000   ; long glide from a dive back to level
+ManaSpeedFlying.ClimbDecelMs = 2500   ; dive -> climb brake, shorter than the glide
 ManaSpeedFlying.SendMs       = 150
 ManaSpeedFlying.TimeoutMs    = 2500   ; restore the mount's own speed if the link goes quiet
 ```
 
 - **BlendMs** is the time for the *whole* climb-to-descend span. The rate is linear, so a smaller
-  hop (for example level to climb) takes proportionally less. Raise it for a longer glide.
+  hop (for example level to climb) takes proportionally less. Raise it for a longer blend.
 - The speeds are multipliers of base run speed, the same scale `SetSpeed(MOVE_FLIGHT, ...)` uses: a
   stock 280% mount is `2.8`.
 - Only flying players are touched, and only the forward flight speed; ground speed, taxis and

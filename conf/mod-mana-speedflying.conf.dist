@@ -51,14 +51,43 @@ ManaSpeedFlying.DescendSpeed = 3.8
 
 #
 #    ManaSpeedFlying.BlendMs
-#        Description: How long the full climb <-> descend span takes to blend, in milliseconds.
-#                     The rate is linear, so a smaller hop (for example level -> climb) takes
-#                     proportionally less. Raise it for a longer, lazier glide; lower it to let
-#                     the speed react faster.
+#        Description: Default blend time, in milliseconds, for state changes other than a dive or
+#                     a pull-out. It is spread over the climb <-> descend span, so a smaller hop
+#                     (for example level -> climb) takes proportionally less. Raise it for a longer,
+#                     lazier blend; lower it to let the speed react faster.
 #        Default:     5500
 #
 
 ManaSpeedFlying.BlendMs = 5500
+
+#
+#    ManaSpeedFlying.DiveMs
+#        Description: Time, in milliseconds, for the speed to build from wherever it is up to
+#                     DescendSpeed when a dive begins. The curve eases in, so the dive starts slow
+#                     and keeps accelerating -- faster and faster -- instead of snapping to speed.
+#        Default:     4000
+#
+
+ManaSpeedFlying.DiveMs = 4000
+
+#
+#    ManaSpeedFlying.GlideMs
+#        Description: Time, in milliseconds, for a dive to bleed back to LevelSpeed. This is the
+#                     long glide: the curve eases in too, so the mount holds most of its speed at
+#                     first and then slows hard before settling back to level.
+#        Default:     9000
+#
+
+ManaSpeedFlying.GlideMs = 9000
+
+#
+#    ManaSpeedFlying.ClimbDecelMs
+#        Description: Time, in milliseconds, to brake from a dive straight into a climb. Linear and
+#                     shorter than GlideMs, so the mount bleeds speed faster than it would leveling.
+#        Default:     2500
+#
+
+ManaSpeedFlying.ClimbDecelMs = 2500
 
 #
 #    ManaSpeedFlying.SendMs
