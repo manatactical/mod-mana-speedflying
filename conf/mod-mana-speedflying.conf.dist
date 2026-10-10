@@ -1,0 +1,80 @@
+#
+# mod-mana-speedflying configuration
+#
+# Server-side companion to the client's wxl-mount-anim module. That module detects the flight state
+# (climbing / leveling / descending) and already knows whether the mount carries the retail AdvFly
+# clips, so it whispers an addon message (prefix "WXLMS") to this module, which blends the mount's
+# flight speed to match. Nothing is guessed on the server, and only mounts the client drives with
+# AdvFly are affected.
+#
+
+[worldserver]
+
+########################################
+# Mount speed by flight state
+########################################
+
+#
+#    ManaSpeedFlying.Enable
+#        Description: Enable the module. The client link still requires ServerLink=1 in
+#                     wxl-mount-anim.ini on the client.
+#        Default:     1 - Enabled
+#                     0 - Disabled
+#
+
+ManaSpeedFlying.Enable = 1
+
+#
+#    ManaSpeedFlying.ClimbSpeed
+#        Description: Flight speed while climbing, as a multiplier of base run speed.
+#                     2.0 = 200%. This is the slowest of the three.
+#        Default:     2.0
+#
+
+ManaSpeedFlying.ClimbSpeed = 2.0
+
+#
+#    ManaSpeedFlying.LevelSpeed
+#        Description: Flight speed while level (or hovering). 2.8 = 280%.
+#        Default:     2.8
+#
+
+ManaSpeedFlying.LevelSpeed = 2.8
+
+#
+#    ManaSpeedFlying.DescendSpeed
+#        Description: Flight speed while descending. 3.8 = 380%. This is the fastest.
+#        Default:     3.8
+#
+
+ManaSpeedFlying.DescendSpeed = 3.8
+
+#
+#    ManaSpeedFlying.BlendMs
+#        Description: How long the full climb <-> descend span takes to blend, in milliseconds.
+#                     The rate is linear, so a smaller hop (for example level -> climb) takes
+#                     proportionally less. Raise it for a longer, lazier glide; lower it to let
+#                     the speed react faster.
+#        Default:     5500
+#
+
+ManaSpeedFlying.BlendMs = 5500
+
+#
+#    ManaSpeedFlying.SendMs
+#        Description: Shortest interval, in milliseconds, between two flight-speed updates sent to
+#                     the client while blending. Smaller is smoother but chattier.
+#        Default:     150
+#
+
+ManaSpeedFlying.SendMs = 150
+
+#
+#    ManaSpeedFlying.TimeoutMs
+#        Description: How long the client link may stay quiet before the mount's own speed is
+#                     restored. The client heartbeats about once a second, so this only trips when
+#                     the client module is unloaded, disabled or crashed. 0 disables the timeout.
+#        Default:     2500
+#
+
+ManaSpeedFlying.TimeoutMs = 2500
