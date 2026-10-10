@@ -23,6 +23,7 @@
  * mount's own speed is restored.
  */
 
+#include "Chat.h"
 #include "Common.h"
 #include "Config.h"
 #include "Player.h"
@@ -248,7 +249,14 @@ namespace
         std::snprintf(body, sizeof(body), "S:%.3g,%.3g,%.3g,%u,%d,%u", g_cfg.levelSpeed * 100.0f,
                       g_cfg.diveSpeed * 100.0f, g_cfg.boostSpeed * 100.0f, g_cfg.boostCdMs,
                       g_cfg.boostStacks, g_cfg.boostMs);
-        player->SendAddonMessage("WXLMS", body, CHAT_MSG_WHISPER, player);
+
+        // The client listens for the addon prefix on CHAT_MSG_ADDON, which the client's chat layer only
+        // parses out of a LANG_ADDON chat packet -- so the prefix rides at the front, exactly as a
+        // client-sent SendAddonMessage lays it out.
+        WorldPacket data;
+        std::string message = std::string("WXLMS\t") + body;
+        ChatHandler::BuildChatPacket(data, CHAT_MSG_WHISPER, LANG_ADDON, player, player, message);
+        player->SendDirectMessage(&data);
     }
 }
 
