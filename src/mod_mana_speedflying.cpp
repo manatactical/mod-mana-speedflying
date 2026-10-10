@@ -60,6 +60,8 @@ namespace
         uint32 hoverMs      = 500;   // short accel/decel zone leaving a hover
         uint32 sendMs       = 150;   // how often the blended speed may reach the client
         uint32 timeoutMs    = 2500;  // drop the link if no message arrives for this long
+        float  boostAdd     = 2.0f;  // extra flight-speed multiplier the button adds (200%)
+        uint32 boostMs      = 4000;  // how long the button boost lasts, ms
     };
 
     Config g_cfg;
@@ -91,6 +93,7 @@ namespace
         Curve  curve     = Curve::Linear; // shape of the current transition
         uint32 sendAccum = 0;
         uint32 sinceLink = 0;             // ms since the last link message, for the timeout
+        uint32 boostLeft = 0;             // ms of button-boost left to apply (0 = none)
     };
 
     std::mutex g_lock;
@@ -223,6 +226,15 @@ public:
             return;
         }
 
+        // The button asks for a burst. It rides on top of whatever state is being blended and does
+        // not change that state, so a boost during a dive stacks with it and expires on its own.
+        if (state == 'B')
+        {
+            st.sinceLink = 0;
+            st.boostLeft = g_cfg.boostMs;
+            return;
+        }
+
         switch (state)
         {
             case 'C': SetTarget(st, Motion::Climb);   break;
@@ -243,7 +255,7 @@ public:
         bool   timedOut = false;
         Curve  curve;
         float  current, target, start, lastSent;
-        uint32 elapsed, duration, sendAccum, sinceLink;
+        uint32 elapsed, duration, sendAccum, sinceLink, boostLeft;
         {
             std::lock_guard<std::mutex> guard(g_lock);
             auto it = g_states.find(guid);
@@ -259,6 +271,7 @@ public:
             lastSent  = it->second.lastSent;
             sendAccum = it->second.sendAccum;
             sinceLink = it->second.sinceLink;
+            boostLeft = it->second.boostLeft;
         }
 
         if (eligible && g_cfg.timeoutMs)
@@ -286,6 +299,7 @@ public:
                 it->second.lastSent  = -1.0f;
                 it->second.sendAccum = 0;
                 it->second.sinceLink = sinceLink;
+                it->second.boostLeft = 0;
             }
             return;
         }
@@ -315,14 +329,34 @@ public:
             }
         }
 
+        // A button boost rides on top of the blended state speed and fades in and out over a short
+        // ramp, so it reads as a burst without disturbing the state machine above.
+        float boost = 0.0f;
+        if (boostLeft > 0)
+        {
+            const float ramp = std::min(static_cast<float>(g_cfg.boostMs) * 0.5f, 300.0f);
+            if (ramp > 0.0f)
+            {
+                const float in  = std::min(1.0f, static_cast<float>(g_cfg.boostMs - boostLeft) / ramp);
+                const float out = std::min(1.0f, static_cast<float>(boostLeft) / ramp);
+                boost = g_cfg.boostAdd * std::min(in, out);
+            }
+            else
+            {
+                boost = g_cfg.boostAdd;
+            }
+            boostLeft = (boostLeft > p_time) ? boostLeft - p_time : 0;
+        }
+        const float applied = current + boost;
+
         sendAccum += p_time;
         if (sendAccum >= g_cfg.sendMs || current == target)
             sendAccum = 0;
 
-        if (current != lastSent)
+        if (applied != lastSent)
         {
-            player->SetSpeed(MOVE_FLIGHT, current, true);
-            lastSent = current;
+            player->SetSpeed(MOVE_FLIGHT, applied, true);
+            lastSent = applied;
         }
 
         std::lock_guard<std::mutex> guard(g_lock);
@@ -334,6 +368,7 @@ public:
             it->second.lastSent  = lastSent;
             it->second.sendAccum = sendAccum;
             it->second.sinceLink = sinceLink;
+            it->second.boostLeft = boostLeft;
         }
     }
 
@@ -368,11 +403,15 @@ public:
         g_cfg.hoverMs      = sConfigMgr->GetOption<uint32>("ManaSpeedFlying.HoverMs", 500);
         g_cfg.sendMs       = sConfigMgr->GetOption<uint32>("ManaSpeedFlying.SendMs", 150);
         g_cfg.timeoutMs    = sConfigMgr->GetOption<uint32>("ManaSpeedFlying.TimeoutMs", 2500);
+        g_cfg.boostAdd     = sConfigMgr->GetOption<float>("ManaSpeedFlying.BoostAdd", 2.0f);
+        g_cfg.boostMs      = sConfigMgr->GetOption<uint32>("ManaSpeedFlying.BoostMs", 4000);
 
         g_cfg.climbSpeed   = std::max(g_cfg.climbSpeed,   0.1f);
         g_cfg.levelSpeed   = std::max(g_cfg.levelSpeed,   0.1f);
         g_cfg.diveSpeed    = std::max(g_cfg.diveSpeed,    0.1f);
+        g_cfg.boostAdd     = std::max(g_cfg.boostAdd,     0.0f);
         if (!g_cfg.sendMs) g_cfg.sendMs = 1;
+        if (!g_cfg.boostMs) g_cfg.boostMs = 1;
 
         // A config change drops every link; the client's next heartbeat picks it back up.
         std::lock_guard<std::mutex> guard(g_lock);

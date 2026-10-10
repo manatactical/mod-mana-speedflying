@@ -32,14 +32,15 @@ The client module does the thinking and tells the server directly, over the addo
 channel a native client module has):
 
 ```
-WXLMS<TAB><advfly:0|1><state:L|C|D|H>
+WXLMS<TAB><advfly:0|1><state:L|C|D|H|B>
 ```
 
 - `advfly` is `1` only for mounts whose model carries the retail **AdvFly** clips -- exactly the
   mounts `wxl-mount-anim` drives with AdvFly. This is what keeps the speed change off stock mounts
   and druid flight forms, with no server-side mount list. A `0` message tells the server to restore
   the mount's own speed and stand down.
-- `state` is `C` climb, `D` dive, `H` hovering, `L` level / strafe / backward.
+- `state` is `C` climb, `D` dive, `H` hovering, `L` level / strafe / backward, and `B` the
+  client's button boost (a temporary burst stacked on whatever state is active).
 
 The client sends on every state change, announces the mount's capability when a mount is loaded, and
 heartbeats about once a second. On the server the message is picked up by
@@ -75,6 +76,8 @@ ManaSpeedFlying.ClimbDecelMs = 3500   ; dive -> climb: hold the speed, then brak
 ManaSpeedFlying.HoverMs      = 500    ; fixed accel/decel zone leaving a hover
 ManaSpeedFlying.SendMs       = 150
 ManaSpeedFlying.TimeoutMs    = 2500   ; restore the mount's own speed if the link goes quiet
+ManaSpeedFlying.BoostAdd     = 2.0    ; button boost: +200% on top of the state speed
+ManaSpeedFlying.BoostMs      = 4000   ; how long the button boost lasts
 ```
 
 - **BlendMs** is the time for the *whole* climb-to-dive span. The rate is linear, so a smaller

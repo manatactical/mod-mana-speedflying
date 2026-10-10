@@ -124,3 +124,22 @@ ManaSpeedFlying.SendMs = 150
 #
 
 ManaSpeedFlying.TimeoutMs = 2500
+
+#
+#    ManaSpeedFlying.BoostAdd
+#        Description: Flight-speed multiplier added while the client's button boost is active,
+#                     on top of the state's own speed. 2.0 = a 200% boost. Fades in and out
+#                     over a short ramp so it reads as a burst.
+#        Default:     2.0
+#
+
+ManaSpeedFlying.BoostAdd = 2.0
+
+#
+#    ManaSpeedFlying.BoostMs
+#        Description: How long, in milliseconds, the button boost lasts before the state's own
+#                     speed takes back over.
+#        Default:     4000
+#
+
+ManaSpeedFlying.BoostMs = 4000
