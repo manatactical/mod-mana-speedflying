@@ -40,7 +40,9 @@ WXLMS<TAB><advfly:0|1><state:L|C|D|H|B>
   and druid flight forms, with no server-side mount list. A `0` message tells the server to restore
   the mount's own speed and stand down.
 - `state` is `C` climb, `D` dive, `H` hovering, `L` level / strafe / backward, and `B` the
-  client's button boost (a temporary burst stacked on whatever state is active).
+  client's button boost. `B` replenishes the glide: it lifts the speed back toward `DiveSpeed`
+  and starts a fresh glide from there, so the added speed is spent as extra glide time instead of
+  a fixed timed burst. It only refills a level glide; a climb or dive keeps its own transition.
 
 The client sends on every state change, announces the mount's capability when a mount is loaded, and
 heartbeats about once a second. On the server the message is picked up by
@@ -76,8 +78,7 @@ ManaSpeedFlying.ClimbDecelMs = 3500   ; dive -> climb: hold the speed, then brak
 ManaSpeedFlying.HoverMs      = 500    ; fixed accel/decel zone leaving a hover
 ManaSpeedFlying.SendMs       = 150
 ManaSpeedFlying.TimeoutMs    = 2500   ; restore the mount's own speed if the link goes quiet
-ManaSpeedFlying.BoostAdd     = 2.0    ; button boost: +200% on top of the state speed
-ManaSpeedFlying.BoostMs      = 4000   ; how long the button boost lasts
+ManaSpeedFlying.BoostAdd     = 2.0    ; button boost: +200% refilled into the glide
 ```
 
 - **BlendMs** is the time for the *whole* climb-to-dive span. The rate is linear, so a smaller
