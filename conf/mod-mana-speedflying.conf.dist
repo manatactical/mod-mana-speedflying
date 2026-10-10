@@ -2,7 +2,7 @@
 # mod-mana-speedflying configuration
 #
 # Server-side companion to the client's wxl-mount-anim module. That module detects the flight state
-# (climbing / leveling / descending) and already knows whether the mount carries the retail AdvFly
+# (climbing / leveling / diving) and already knows whether the mount carries the retail AdvFly
 # clips, so it whispers an addon message (prefix "WXLMS") to this module, which blends the mount's
 # flight speed to match. Nothing is guessed on the server, and only mounts the client drives with
 # AdvFly are affected.
@@ -42,17 +42,18 @@ ManaSpeedFlying.ClimbSpeed = 2.0
 ManaSpeedFlying.LevelSpeed = 2.8
 
 #
-#    ManaSpeedFlying.DescendSpeed
-#        Description: Flight speed while descending. 3.8 = 380%. This is the fastest.
+#    ManaSpeedFlying.DiveSpeed
+#        Description: Flight speed while diving. 3.8 = 380%. This is the fastest. The old
+#                     ManaSpeedFlying.DescendSpeed key is still read for compatibility.
 #        Default:     3.8
 #
 
-ManaSpeedFlying.DescendSpeed = 3.8
+ManaSpeedFlying.DiveSpeed = 3.8
 
 #
 #    ManaSpeedFlying.BlendMs
 #        Description: Default blend time, in milliseconds, for state changes other than a dive or
-#                     a pull-out. It is spread over the climb <-> descend span, so a smaller hop
+#                     a pull-out. It is spread over the climb <-> dive span, so a smaller hop
 #                     (for example level -> climb) takes proportionally less. Raise it for a longer,
 #                     lazier blend; lower it to let the speed react faster.
 #        Default:     5500
@@ -63,8 +64,9 @@ ManaSpeedFlying.BlendMs = 5500
 #
 #    ManaSpeedFlying.DiveMs
 #        Description: Time, in milliseconds, for the speed to build from wherever it is up to
-#                     DescendSpeed when a dive begins. The curve eases in, so the dive starts slow
-#                     and keeps accelerating -- faster and faster -- instead of snapping to speed.
+#                     DiveSpeed when a dive begins. The curve starts with a small kick so the dive
+#                     responds at once, then keeps accelerating -- faster and faster -- instead of
+#                     snapping to speed. Lower it for an even punchier dive.
 #        Default:     4000
 #
 
@@ -72,9 +74,11 @@ ManaSpeedFlying.DiveMs = 4000
 
 #
 #    ManaSpeedFlying.GlideMs
-#        Description: Time, in milliseconds, for a dive to bleed back to LevelSpeed. This is the
-#                     long glide: the curve eases in too, so the mount holds most of its speed at
-#                     first and then slows hard before settling back to level.
+#        Description: Time, in milliseconds, for a full dive to bleed back to LevelSpeed. Scaled by
+#                     how much speed is actually being shed against the DiveSpeed - LevelSpeed
+#                     drop, so pulling out of a shallow dive recovers sooner than a full one. The
+#                     curve eases in, so the mount holds most of its speed at first and then slows
+#                     hard before settling back to level.
 #        Default:     9000
 #
 
@@ -82,12 +86,24 @@ ManaSpeedFlying.GlideMs = 9000
 
 #
 #    ManaSpeedFlying.ClimbDecelMs
-#        Description: Time, in milliseconds, to brake from a dive straight into a climb. Linear and
-#                     shorter than GlideMs, so the mount bleeds speed faster than it would leveling.
+#        Description: Time, in milliseconds, to brake from a full dive straight into a climb. Scaled
+#                     by the speed actually being shed, like GlideMs, but linear and shorter than it,
+#                     so the mount bleeds speed faster than it would leveling.
 #        Default:     2500
 #
 
 ManaSpeedFlying.ClimbDecelMs = 2500
+
+#
+#    ManaSpeedFlying.HoverMs
+#        Description: Time, in milliseconds, for the speed to move from a hover (a parked mount)
+#                     into whatever state it heads to next -- climb, level or dive. Fixed, not
+#                     scaled, so a take-off is always this brief accel/decel zone. Lower it for a
+#                     snappier launch.
+#        Default:     500
+#
+
+ManaSpeedFlying.HoverMs = 500
 
 #
 #    ManaSpeedFlying.SendMs

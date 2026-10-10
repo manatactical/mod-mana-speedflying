@@ -2,17 +2,17 @@
  * mod-mana-speedflying: vary a flying mount's speed with its flight state.
  *
  * Server-side companion to the client's wxl-mount-anim module. That module already works out the
- * state (climbing / leveling / descending) and whether the mount carries the AdvFly clips, so it
+ * state (climbing / leveling / diving) and whether the mount carries the AdvFly clips, so it
  * says so directly: it whispers an addon message with the "WXLMS" prefix, and this module blends the
  * mount's flight speed toward the speed the state calls for. No server-side guesswork and no mount
  * list -- a mount the client does not drive with AdvFly reports '0' and its speed is left alone.
  *
  * Protocol, an addon whisper:  "WXLMS\t<advfly:0|1><state:L|C|D|H>"
  *   advfly  '1' = the mount is one wxl-mount-anim drives (AdvFly clips), '0' = leave the speed alone
- *   state   C climb, D descend, H hovering, L level / strafe / backward
+ *   state   C climb, D dive, H hovering, L level / strafe / backward
  *
  * The state is applied over a transition whose length and curve depend on where the speed is going:
- * a dive accelerates into DescendSpeed (faster and faster), pulling out to level is a long glide that
+ * a dive accelerates into DiveSpeed (faster and faster), pulling out to level is a long glide that
  * bleeds speed slowly at first and then hard, and pulling up into a climb brakes sooner than a glide
  * would. Other hops keep the span-proportional blend. If the link goes quiet for TimeoutMs, the
  * mount's own speed is restored.
@@ -34,7 +34,16 @@ namespace
     {
         Level = 0,
         Climb,
-        Descend
+        Dive,
+        Hover
+    };
+
+    // Shape of a transition's speed curve.
+    enum class Curve
+    {
+        Linear, // constant rate
+        EaseIn, // starts slow, ends fast -- leveling out of a dive
+        Dive    // starts with a small kick, then keeps accelerating
     };
 
     struct Config
@@ -42,11 +51,12 @@ namespace
         bool   enabled      = true;
         float  climbSpeed   = 2.0f;  // 200% of base run speed
         float  levelSpeed   = 2.8f;  // 280%
-        float  descendSpeed = 3.8f;  // 380%
+        float  diveSpeed    = 3.8f;  // 380%
         uint32 blendMs      = 5500;  // default blend, proportional to the span it must cover
         uint32 diveMs       = 4000;  // accelerate into a dive
         uint32 glideMs      = 9000;  // long ease-in glide from a dive back to level
         uint32 climbDecelMs = 2500;  // dive -> climb brake, shorter than the glide
+        uint32 hoverMs      = 500;   // short accel/decel zone leaving a hover
         uint32 sendMs       = 150;   // how often the blended speed may reach the client
         uint32 timeoutMs    = 2500;  // drop the link if no message arrives for this long
     };
@@ -57,14 +67,14 @@ namespace
     {
         switch (m)
         {
-            case Motion::Climb:   return g_cfg.climbSpeed;
-            case Motion::Descend: return g_cfg.descendSpeed;
-            default:              return g_cfg.levelSpeed;
+            case Motion::Climb: return g_cfg.climbSpeed;
+            case Motion::Dive:  return g_cfg.diveSpeed;
+            default:            return g_cfg.levelSpeed; // Level and Hover
         }
     }
 
-    float MaxRate() { return std::max(g_cfg.climbSpeed, std::max(g_cfg.levelSpeed, g_cfg.descendSpeed)); }
-    float MinRate() { return std::min(g_cfg.climbSpeed, std::min(g_cfg.levelSpeed, g_cfg.descendSpeed)); }
+    float MaxRate() { return std::max(g_cfg.climbSpeed, std::max(g_cfg.levelSpeed, g_cfg.diveSpeed)); }
+    float MinRate() { return std::min(g_cfg.climbSpeed, std::min(g_cfg.levelSpeed, g_cfg.diveSpeed)); }
 
     struct PlayerState
     {
@@ -76,7 +86,7 @@ namespace
         float  lastSent  = -1.0f;         // last rate handed to SetSpeed; < 0 = nothing applied
         uint32 elapsed   = 0;             // ms into the current transition
         uint32 duration  = 0;             // ms the current transition runs for; 0 = instant
-        bool   easeIn    = false;         // start slow and finish fast instead of linear
+        Curve  curve     = Curve::Linear; // shape of the current transition
         uint32 sendAccum = 0;
         uint32 sinceLink = 0;             // ms since the last link message, for the timeout
     };
@@ -84,15 +94,32 @@ namespace
     std::mutex g_lock;
     std::unordered_map<uint64, PlayerState> g_states;
 
+    // Scales a fixed transition time by how far the speed actually has to travel, relative to the
+    // configured full drop. A shallow pull-out recovers sooner than a deep one; the canonical dive
+    // (current at the far rate) keeps the configured duration exactly.
+    uint32 ScaledMs(uint32 baseMs, float dist, float reference)
+    {
+        if (reference <= 0.0f)
+            return baseMs;
+        return static_cast<uint32>(static_cast<float>(baseMs) * dist / reference);
+    }
+
     // Transition length for entering `next` from the state we are in.
     uint32 DurationFor(const PlayerState& st, Motion next)
     {
-        if (next == Motion::Descend)
+        // Leaving a hover (a parked mount) is a deliberately tiny accel/decel zone whatever state
+        // it heads into, so taking off responds at once instead of ramping from a standstill.
+        if (st.motion == Motion::Hover)
+            return g_cfg.hoverMs;
+        if (next == Motion::Dive)
             return g_cfg.diveMs;
-        if (st.motion == Motion::Descend)
+        if (st.motion == Motion::Dive)
         {
-            if (next == Motion::Climb) return g_cfg.climbDecelMs;
-            if (next == Motion::Level) return g_cfg.glideMs;
+            const float dist = std::fabs(RateFor(next) - st.current);
+            if (next == Motion::Climb)
+                return ScaledMs(g_cfg.climbDecelMs, dist, std::fabs(g_cfg.diveSpeed - g_cfg.climbSpeed));
+            if (next == Motion::Level)
+                return ScaledMs(g_cfg.glideMs, dist, std::fabs(g_cfg.diveSpeed - g_cfg.levelSpeed));
         }
         // Everything else keeps the old span-proportional blend.
         const float span = MaxRate() - MinRate();
@@ -102,11 +129,15 @@ namespace
         return static_cast<uint32>(static_cast<float>(g_cfg.blendMs) * dist / span);
     }
 
-    // Ease-in makes the change start slow and finish fast; used to accelerate a dive and to let a
-    // glide hold its speed at first before bleeding it off.
-    bool EaseInFor(const PlayerState& st, Motion next)
+    // Curve used to accelerate a dive (a kick so it responds at once, then faster and faster),
+    // hold a glide's speed before bleeding it off (ease-in), or neither.
+    Curve CurveFor(const PlayerState& st, Motion next)
     {
-        return next == Motion::Descend || (st.motion == Motion::Descend && next == Motion::Level);
+        if (next == Motion::Dive)
+            return Curve::Dive;
+        if (st.motion == Motion::Dive && next == Motion::Level)
+            return Curve::EaseIn;
+        return Curve::Linear;
     }
 
     // Records the state a link message named. The first message on a mount snaps the applied rate so
@@ -124,7 +155,7 @@ namespace
             st.target    = st.current;
             st.elapsed   = 0;
             st.duration  = 0;
-            st.easeIn    = false;
+            st.curve     = Curve::Linear;
             st.lastSent  = -1.0f;
             st.sendAccum = g_cfg.sendMs; // force the first packet out on the next update
             return;
@@ -141,7 +172,7 @@ namespace
         st.target   = RateFor(m);
         st.elapsed  = 0;
         st.duration = DurationFor(st, m);
-        st.easeIn   = EaseInFor(st, m);
+        st.curve    = CurveFor(st, m);
         st.motion   = m;
     }
 }
@@ -178,7 +209,8 @@ public:
         switch (state)
         {
             case 'C': SetTarget(st, Motion::Climb);   break;
-            case 'D': SetTarget(st, Motion::Descend); break;
+            case 'D': SetTarget(st, Motion::Dive);     break;
+            case 'H': SetTarget(st, Motion::Hover);   break;
             default:  SetTarget(st, Motion::Level);   break;
         }
     }
@@ -192,7 +224,7 @@ public:
 
         bool   eligible;
         bool   timedOut = false;
-        bool   easeIn;
+        Curve  curve;
         float  current, target, start, lastSent;
         uint32 elapsed, duration, sendAccum, sinceLink;
         {
@@ -206,7 +238,7 @@ public:
             start     = it->second.start;
             elapsed   = it->second.elapsed;
             duration  = it->second.duration;
-            easeIn    = it->second.easeIn;
+            curve     = it->second.curve;
             lastSent  = it->second.lastSent;
             sendAccum = it->second.sendAccum;
             sinceLink = it->second.sinceLink;
@@ -257,7 +289,11 @@ public:
             else
             {
                 const float p = static_cast<float>(elapsed) / static_cast<float>(duration);
-                const float e = easeIn ? p * p : p;
+                float e = p;
+                if (curve == Curve::EaseIn)
+                    e = p * p;
+                else if (curve == Curve::Dive)
+                    e = p * (0.35f + 0.65f * p); // kick off the line, then keep accelerating
                 current = start + (target - start) * e;
             }
         }
@@ -304,17 +340,21 @@ public:
         g_cfg.enabled      = sConfigMgr->GetOption<bool>("ManaSpeedFlying.Enable", true);
         g_cfg.climbSpeed   = sConfigMgr->GetOption<float>("ManaSpeedFlying.ClimbSpeed", 2.0f);
         g_cfg.levelSpeed   = sConfigMgr->GetOption<float>("ManaSpeedFlying.LevelSpeed", 2.8f);
-        g_cfg.descendSpeed = sConfigMgr->GetOption<float>("ManaSpeedFlying.DescendSpeed", 3.8f);
+        // Prefer the current key; fall back to the pre-rename one so existing configs keep their speed.
+        const float diveSpeed = sConfigMgr->GetOption<float>("ManaSpeedFlying.DiveSpeed", -1.0f);
+        const float legacy    = sConfigMgr->GetOption<float>("ManaSpeedFlying.DescendSpeed", -1.0f);
+        g_cfg.diveSpeed = diveSpeed >= 0.0f ? diveSpeed : (legacy >= 0.0f ? legacy : 3.8f);
         g_cfg.blendMs      = sConfigMgr->GetOption<uint32>("ManaSpeedFlying.BlendMs", 5500);
         g_cfg.diveMs       = sConfigMgr->GetOption<uint32>("ManaSpeedFlying.DiveMs", 4000);
         g_cfg.glideMs      = sConfigMgr->GetOption<uint32>("ManaSpeedFlying.GlideMs", 9000);
         g_cfg.climbDecelMs = sConfigMgr->GetOption<uint32>("ManaSpeedFlying.ClimbDecelMs", 2500);
+        g_cfg.hoverMs      = sConfigMgr->GetOption<uint32>("ManaSpeedFlying.HoverMs", 500);
         g_cfg.sendMs       = sConfigMgr->GetOption<uint32>("ManaSpeedFlying.SendMs", 150);
         g_cfg.timeoutMs    = sConfigMgr->GetOption<uint32>("ManaSpeedFlying.TimeoutMs", 2500);
 
         g_cfg.climbSpeed   = std::max(g_cfg.climbSpeed,   0.1f);
         g_cfg.levelSpeed   = std::max(g_cfg.levelSpeed,   0.1f);
-        g_cfg.descendSpeed = std::max(g_cfg.descendSpeed, 0.1f);
+        g_cfg.diveSpeed    = std::max(g_cfg.diveSpeed,    0.1f);
         if (!g_cfg.sendMs) g_cfg.sendMs = 1;
 
         // A config change drops every link; the client's next heartbeat picks it back up.
