@@ -43,7 +43,9 @@ ManaSpeedFlying.LevelSpeed = 2.8
 
 #
 #    ManaSpeedFlying.DiveSpeed
-#        Description: Flight speed while diving. 8.0 = 800%. This is the fastest.
+#        Description: Flight speed while diving. 8.0 = 800%. This is the fastest. Changing this (and
+#                     LevelSpeed) is enough: the module tells the client module these speeds, so the
+#                     client's HUD, particles and shake scale to them with no client-side edit.
 #        Default:     8.0
 #
 

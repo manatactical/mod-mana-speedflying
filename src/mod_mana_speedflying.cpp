@@ -11,6 +11,10 @@
  *   advfly  '1' = the mount is one wxl-mount-anim drives (AdvFly clips), '0' = leave the speed alone
  *   state   C climb, D dive, H hovering, L level / strafe / backward
  *
+ * The server answers with its own configured speeds so the client scales its bar, particles and shake
+ * to them:  "WXLMS\tS<levelPct>,<divePct>"  (the same WXLMS prefix; the client reads the last
+ * addon message once a second).
+ *
  * The state is applied over a transition whose length and curve depend on where the speed is going:
  * a dive accelerates into DiveSpeed (faster and faster), pulling out to level is a long glide that
  * bleeds speed slowly at first and then hard, and pulling up into a climb holds the built-up speed
@@ -19,12 +23,14 @@
  * mount's own speed is restored.
  */
 
+#include "Common.h"
 #include "Config.h"
 #include "Player.h"
 #include "ScriptMgr.h"
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 #include <mutex>
 #include <string>
 #include <unordered_map>
@@ -92,6 +98,8 @@ namespace
         Curve  curve     = Curve::Linear; // shape of the current transition
         uint32 sendAccum = 0;
         uint32 sinceLink = 0;             // ms since the last link message, for the timeout
+        bool   announced = false;         // the client has been told the current speeds
+        uint32 lastAnnounce = 0;          // ms of the last speed announce, for the slow resend
     };
 
     std::mutex g_lock;
@@ -215,6 +223,19 @@ namespace
         st.curve    = CurveFor(st, m);
         st.motion   = m;
     }
+
+    // Publish the configured speeds to the client so its bar, particles and shake scale to the values
+    // actually in play instead of a compiled-in 800%. Same "WXLMS" prefix the client already sends,
+    // body "S:<levelPct>,<maxPct>" (the max is the fastest configured state); the client polls its
+    // last addon message once a second and ignores a body it cannot parse. A UI reload on the client
+    // drops the value, which the slow resend covers.
+    void SendSpeedAnnounce(Player* player)
+    {
+        char body[48];
+        std::snprintf(body, sizeof(body), "S:%.3g,%.3g", g_cfg.levelSpeed * 100.0f,
+                      MaxRate() * 100.0f);
+        player->SendAddonMessage("WXLMS", body, CHAT_MSG_WHISPER, player);
+    }
 }
 
 class ManaSpeedFlyingPlayer : public PlayerScript
@@ -236,32 +257,49 @@ public:
         const char advfly = msg[6];
         const char state  = msg[7];
 
-        std::lock_guard<std::mutex> guard(g_lock);
-        PlayerState& st = g_states[player->GetGUID().GetRawValue()];
-
-        if (advfly != '1')
+        bool announce = false;
         {
-            // Not an AdvFly mount (or no mount): the update path restores the core's own speed.
-            st.eligible = false;
-            return;
+            std::lock_guard<std::mutex> guard(g_lock);
+            PlayerState& st = g_states[player->GetGUID().GetRawValue()];
+
+            if (advfly != '1')
+            {
+                // Not an AdvFly mount (or no mount): the update path restores the core's own speed.
+                st.eligible = false;
+                return;
+            }
+
+            // First contact gets the server's speeds at once; after that a slow resend covers a client
+            // UI reload (which wipes the value) without chattering on every state change.
+            const uint32 now = getMSTime();
+            if (!st.announced || now - st.lastAnnounce >= 5000)
+            {
+                st.announced    = true;
+                st.lastAnnounce = now;
+                announce        = true;
+            }
+
+            // The button replenishes the glide: it lifts the speed and starts a fresh glide, so the
+            // added speed is spent as extra glide time instead of a fixed timed burst.
+            if (state == 'B')
+            {
+                st.sinceLink = 0;
+                ApplyBoost(st);
+            }
+            else
+            {
+                switch (state)
+                {
+                    case 'C': SetTarget(st, Motion::Climb); break;
+                    case 'D': SetTarget(st, Motion::Dive);  break;
+                    case 'H': SetTarget(st, Motion::Hover); break;
+                    default:  SetTarget(st, Motion::Level); break;
+                }
+            }
         }
 
-        // The button replenishes the glide: it lifts the speed and starts a fresh glide, so the
-        // added speed is spent as extra glide time instead of a fixed timed burst.
-        if (state == 'B')
-        {
-            st.sinceLink = 0;
-            ApplyBoost(st);
-            return;
-        }
-
-        switch (state)
-        {
-            case 'C': SetTarget(st, Motion::Climb);   break;
-            case 'D': SetTarget(st, Motion::Dive);     break;
-            case 'H': SetTarget(st, Motion::Hover);   break;
-            default:  SetTarget(st, Motion::Level);   break;
-        }
+        if (announce)
+            SendSpeedAnnounce(player);
     }
 
     void OnPlayerUpdate(Player* player, uint32 p_time) override

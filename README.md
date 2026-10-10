@@ -49,6 +49,22 @@ heartbeats about once a second. On the server the message is picked up by
 `PlayerScript::OnPlayerBeforeSendChatMessage` (addon messages, `LANG_ADDON`), and a periodic
 `OnPlayerUpdate` blends `MOVE_FLIGHT` toward the state's speed.
 
+### The server answers with its speeds
+
+The client scales its speed bar, its speed particles and its dive shake to the top dive speed, so
+it has to know what that speed is. On the same `WXLMS` prefix the server replies with its configured
+values:
+
+```
+WXLMS<TAB>S<levelPct>,<divePct>          e.g. WXLMS\tS280,800
+```
+
+The client reads the last addon message once a second and uses those two numbers as the empty and
+full ends of every speed effect. The reply goes out on the first link message and again every few
+seconds (which also recovers a client UI reload), so changing `ManaSpeedFlying.DiveSpeed` on the
+server is enough -- no matching edit in `wxl-mount-anim.ini` is needed. If the module is not
+installed, the client falls back to its own `GlideSpeedPct` / `MaxSpeedPct` defaults.
+
 ## Requirements
 
 - Client: `wxl-mount-anim` with `ServerLink=1` in `wxl-mount-anim.ini` (default on).
