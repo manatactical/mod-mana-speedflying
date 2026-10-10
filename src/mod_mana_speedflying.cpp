@@ -51,7 +51,7 @@ namespace
         bool   enabled      = true;
         float  climbSpeed   = 2.0f;  // 200% of base run speed
         float  levelSpeed   = 2.8f;  // 280%
-        float  diveSpeed    = 3.8f;  // 380%
+        float  diveSpeed    = 8.0f;  // 800%
         uint32 blendMs      = 5500;  // default blend, proportional to the span it must cover
         uint32 diveMs       = 4000;  // accelerate into a dive
         uint32 glideMs      = 9000;  // long ease-in glide from a dive back to level
@@ -343,7 +343,7 @@ public:
         // Prefer the current key; fall back to the pre-rename one so existing configs keep their speed.
         const float diveSpeed = sConfigMgr->GetOption<float>("ManaSpeedFlying.DiveSpeed", -1.0f);
         const float legacy    = sConfigMgr->GetOption<float>("ManaSpeedFlying.DescendSpeed", -1.0f);
-        g_cfg.diveSpeed = diveSpeed >= 0.0f ? diveSpeed : (legacy >= 0.0f ? legacy : 3.8f);
+        g_cfg.diveSpeed = diveSpeed >= 0.0f ? diveSpeed : (legacy >= 0.0f ? legacy : 8.0f);
         g_cfg.blendMs      = sConfigMgr->GetOption<uint32>("ManaSpeedFlying.BlendMs", 5500);
         g_cfg.diveMs       = sConfigMgr->GetOption<uint32>("ManaSpeedFlying.DiveMs", 4000);
         g_cfg.glideMs      = sConfigMgr->GetOption<uint32>("ManaSpeedFlying.GlideMs", 9000);

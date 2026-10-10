@@ -7,7 +7,7 @@ companion to the client's **wxl-mount-anim** module:
 |------------|-------|
 | climbing   | 200%  |
 | leveling   | 280%  |
-| diving     | 380%  |
+| diving     | 800%  |
 
 `wxl-mount-anim` already animates the mount as climbing / gliding / diving, so the two agree: wings
 beat slowly on the way up, the glide rushes on the way down. The speed does not snap between states:
@@ -65,7 +65,7 @@ comments. Defaults:
 ManaSpeedFlying.Enable       = 1
 ManaSpeedFlying.ClimbSpeed   = 2.0    ; 200%
 ManaSpeedFlying.LevelSpeed   = 2.8    ; 280%
-ManaSpeedFlying.DiveSpeed    = 3.8    ; 380% (old .DescendSpeed key still read)
+ManaSpeedFlying.DiveSpeed    = 8.0    ; 800% (old .DescendSpeed key still read)
 ManaSpeedFlying.BlendMs      = 5500   ; default blend, proportional to the span it covers
 ManaSpeedFlying.DiveMs       = 4000   ; accelerate into a dive
 ManaSpeedFlying.GlideMs      = 9000   ; long glide from a dive back to level
