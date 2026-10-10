@@ -79,20 +79,21 @@ ManaSpeedFlying.DiveMs = 4000
 #                     drop, so pulling out of a shallow dive recovers sooner than a full one. The
 #                     curve eases in, so the mount holds most of its speed at first and then slows
 #                     hard before settling back to level.
-#        Default:     9000
+#        Default:     18000
 #
 
-ManaSpeedFlying.GlideMs = 9000
+ManaSpeedFlying.GlideMs = 18000
 
 #
 #    ManaSpeedFlying.ClimbDecelMs
-#        Description: Time, in milliseconds, to brake from a full dive straight into a climb. Scaled
-#                     by the speed actually being shed, like GlideMs, but linear and shorter than it,
-#                     so the mount bleeds speed faster than it would leveling.
-#        Default:     2500
+#        Description: Time, in milliseconds, to brake from a full dive straight into a climb.
+#                     Scaled by the speed actually being shed, like GlideMs. The curve eases in, so
+#                     the mount holds the dive speed for a moment -- letting the built-up speed be
+#                     felt -- before braking hard into ClimbSpeed.
+#        Default:     3500
 #
 
-ManaSpeedFlying.ClimbDecelMs = 2500
+ManaSpeedFlying.ClimbDecelMs = 3500
 
 #
 #    ManaSpeedFlying.HoverMs

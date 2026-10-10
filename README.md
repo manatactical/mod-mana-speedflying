@@ -18,8 +18,10 @@ beat slowly on the way up, the glide rushes on the way down. The speed does not 
   being shed: pulling out of a shallow dive recovers sooner than a full `DiveSpeed` dive does.
   The mount keeps most of its dive speed at first and only bleeds it off hard near the end, before
   settling back to `LevelSpeed`.
-- **Diving, then climbing** brakes over the shorter `ClimbDecelMs` (scaled the same way), so pulling
-  up sheds speed sooner than leveling would.
+- **Diving, then climbing** holds the dive speed for a moment over `ClimbDecelMs` (scaled the same
+  way) so the built-up speed can be felt, then brakes hard into `ClimbSpeed`.
+- **Diving, then climb, then level** (the pull-up is cut short) still carries the leftover dive
+  speed: it glides out over `GlideMs` like a pull-out instead of blending like a fresh climb.
 - Leaving a **hover** (a parked mount) uses a fixed, tiny `HoverMs` zone whatever it heads into --
   climb, level or dive -- so a take-off responds at once instead of ramping from a standstill.
 - Every other change blends over `BlendMs`, spread over how far the speed has to move.
@@ -68,8 +70,8 @@ ManaSpeedFlying.LevelSpeed   = 2.8    ; 280%
 ManaSpeedFlying.DiveSpeed    = 8.0    ; 800% (old .DescendSpeed key still read)
 ManaSpeedFlying.BlendMs      = 5500   ; default blend, proportional to the span it covers
 ManaSpeedFlying.DiveMs       = 4000   ; accelerate into a dive
-ManaSpeedFlying.GlideMs      = 9000   ; long glide from a dive back to level
-ManaSpeedFlying.ClimbDecelMs = 2500   ; dive -> climb brake, shorter than the glide
+ManaSpeedFlying.GlideMs      = 18000  ; long glide from a dive back to level
+ManaSpeedFlying.ClimbDecelMs = 3500   ; dive -> climb: hold the speed, then brake hard
 ManaSpeedFlying.HoverMs      = 500    ; fixed accel/decel zone leaving a hover
 ManaSpeedFlying.SendMs       = 150
 ManaSpeedFlying.TimeoutMs    = 2500   ; restore the mount's own speed if the link goes quiet

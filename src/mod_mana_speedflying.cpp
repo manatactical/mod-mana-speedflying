@@ -13,8 +13,9 @@
  *
  * The state is applied over a transition whose length and curve depend on where the speed is going:
  * a dive accelerates into DiveSpeed (faster and faster), pulling out to level is a long glide that
- * bleeds speed slowly at first and then hard, and pulling up into a climb brakes sooner than a glide
- * would. Other hops keep the span-proportional blend. If the link goes quiet for TimeoutMs, the
+ * bleeds speed slowly at first and then hard, and pulling up into a climb holds the built-up speed
+ * before braking hard. A climb cut short to level keeps that glide. Other hops keep the
+ * span-proportional blend. If the link goes quiet for TimeoutMs, the
  * mount's own speed is restored.
  */
 
@@ -42,7 +43,7 @@ namespace
     enum class Curve
     {
         Linear, // constant rate
-        EaseIn, // starts slow, ends fast -- leveling out of a dive
+        EaseIn, // holds the start speed, then moves hard near the end
         Dive    // starts with a small kick, then keeps accelerating
     };
 
@@ -54,8 +55,8 @@ namespace
         float  diveSpeed    = 8.0f;  // 800%
         uint32 blendMs      = 5500;  // default blend, proportional to the span it must cover
         uint32 diveMs       = 4000;  // accelerate into a dive
-        uint32 glideMs      = 9000;  // long ease-in glide from a dive back to level
-        uint32 climbDecelMs = 2500;  // dive -> climb brake, shorter than the glide
+        uint32 glideMs      = 18000; // long ease-in glide from a dive back to level
+        uint32 climbDecelMs = 3500;  // dive -> climb: hold the dive speed, then brake hard
         uint32 hoverMs      = 500;   // short accel/decel zone leaving a hover
         uint32 sendMs       = 150;   // how often the blended speed may reach the client
         uint32 timeoutMs    = 2500;  // drop the link if no message arrives for this long
@@ -79,6 +80,7 @@ namespace
     struct PlayerState
     {
         bool   eligible  = false;         // client said the mount is AdvFly-capable
+        bool   fromDive  = false;         // the running climb was entered straight out of a dive
         Motion motion    = Motion::Level; // state the current transition is heading to
         float  start     = 0.0f;          // rate when the current transition began
         float  target    = 0.0f;          // rate the current state calls for
@@ -121,6 +123,13 @@ namespace
             if (next == Motion::Level)
                 return ScaledMs(g_cfg.glideMs, dist, std::fabs(g_cfg.diveSpeed - g_cfg.levelSpeed));
         }
+        // A climb entered from a dive and cut short to level still carries the leftover dive speed,
+        // so it glides out like a pull-out rather than blending like a fresh climb.
+        if (st.motion == Motion::Climb && st.fromDive && next == Motion::Level)
+        {
+            const float dist = std::fabs(RateFor(next) - st.current);
+            return ScaledMs(g_cfg.glideMs, dist, std::fabs(g_cfg.diveSpeed - g_cfg.levelSpeed));
+        }
         // Everything else keeps the old span-proportional blend.
         const float span = MaxRate() - MinRate();
         if (span <= 0.0f)
@@ -135,7 +144,11 @@ namespace
     {
         if (next == Motion::Dive)
             return Curve::Dive;
-        if (st.motion == Motion::Dive && next == Motion::Level)
+        // Ease-in holds the built-up speed first, then brakes hard near the end. Used for every pull
+        // out of a dive: level (the long glide) and climb (hold the speed, then lose it).
+        if (st.motion == Motion::Dive)
+            return Curve::EaseIn;
+        if (st.motion == Motion::Climb && st.fromDive && next == Motion::Level)
             return Curve::EaseIn;
         return Curve::Linear;
     }
@@ -156,6 +169,7 @@ namespace
             st.elapsed   = 0;
             st.duration  = 0;
             st.curve     = Curve::Linear;
+            st.fromDive  = false;
             st.lastSent  = -1.0f;
             st.sendAccum = g_cfg.sendMs; // force the first packet out on the next update
             return;
@@ -168,6 +182,9 @@ namespace
         }
 
         // A real state change: start a fresh transition from wherever the speed is now.
+        const Motion prev = st.motion;
+        if (m == Motion::Climb)
+            st.fromDive = (prev == Motion::Dive);
         st.start    = st.current;
         st.target   = RateFor(m);
         st.elapsed  = 0;
@@ -346,8 +363,8 @@ public:
         g_cfg.diveSpeed = diveSpeed >= 0.0f ? diveSpeed : (legacy >= 0.0f ? legacy : 8.0f);
         g_cfg.blendMs      = sConfigMgr->GetOption<uint32>("ManaSpeedFlying.BlendMs", 5500);
         g_cfg.diveMs       = sConfigMgr->GetOption<uint32>("ManaSpeedFlying.DiveMs", 4000);
-        g_cfg.glideMs      = sConfigMgr->GetOption<uint32>("ManaSpeedFlying.GlideMs", 9000);
-        g_cfg.climbDecelMs = sConfigMgr->GetOption<uint32>("ManaSpeedFlying.ClimbDecelMs", 2500);
+        g_cfg.glideMs      = sConfigMgr->GetOption<uint32>("ManaSpeedFlying.GlideMs", 18000);
+        g_cfg.climbDecelMs = sConfigMgr->GetOption<uint32>("ManaSpeedFlying.ClimbDecelMs", 3500);
         g_cfg.hoverMs      = sConfigMgr->GetOption<uint32>("ManaSpeedFlying.HoverMs", 500);
         g_cfg.sendMs       = sConfigMgr->GetOption<uint32>("ManaSpeedFlying.SendMs", 150);
         g_cfg.timeoutMs    = sConfigMgr->GetOption<uint32>("ManaSpeedFlying.TimeoutMs", 2500);
