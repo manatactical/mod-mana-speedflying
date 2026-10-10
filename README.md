@@ -94,7 +94,10 @@ ManaSpeedFlying.ClimbDecelMs = 3500   ; dive -> climb: hold the speed, then brak
 ManaSpeedFlying.HoverMs      = 500    ; fixed accel/decel zone leaving a hover
 ManaSpeedFlying.SendMs       = 150
 ManaSpeedFlying.TimeoutMs    = 2500   ; restore the mount's own speed if the link goes quiet
-ManaSpeedFlying.BoostAdd     = 2.0    ; button boost: +200% refilled into the glide
+ManaSpeedFlying.BoostSpeed   = 16.0   ; 1600%: button-boost ceiling (>= DiveSpeed)
+ManaSpeedFlying.BoostMs      = 4000   ; how long one boost lasts
+ManaSpeedFlying.BoostCooldownMs = 8000 ; cooldown between boosts
+ManaSpeedFlying.BoostMaxStacks  = 3    ; 0..3, built by diving
 ```
 
 - **BlendMs** is the time for the *whole* climb-to-dive span. The rate is linear, so a smaller
@@ -105,6 +108,14 @@ ManaSpeedFlying.BoostAdd     = 2.0    ; button boost: +200% refilled into the gl
   stock 280% mount is `2.8`.
 - Only flying players are touched, and only the forward flight speed; ground speed, taxis and
   vehicles are left alone.
+
+### The button boost
+
+Diving builds up to `BoostMaxStacks` stacks: 50% of the way from `LevelSpeed` to `DiveSpeed` grants
+one, 80% grants two and the full dive ceiling grants three. Each press of the client's boost button
+(can be used in any flight state) spends one stack and opens a `BoostMs` window during which a dive
+is allowed up to `BoostSpeed`; `BoostCooldownMs` gates the next press. Stacks are not gained while a
+boost is running, so the boost's own over-ceiling speed cannot refill the stack it just spent.
 
 ## Notes
 

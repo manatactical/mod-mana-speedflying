@@ -127,13 +127,39 @@ ManaSpeedFlying.SendMs = 150
 ManaSpeedFlying.TimeoutMs = 2500
 
 #
-#    ManaSpeedFlying.BoostAdd
-#        Description: Speed the client's button boost adds back onto the glide, as a multiplier
-#                     of base run speed. 2.0 = +200%. The boost lifts the current glide speed by
-#                     this much (capped at DiveSpeed) and starts a fresh glide from there, so the
-#                     added speed is spent as extra glide time rather than a fixed timed burst.
-#                     It only refills a level glide; a climb or dive keeps its own transition.
-#        Default:     2.0
+#    ManaSpeedFlying.BoostSpeed
+#        Description: The knee-of-the-bar ceiling while the client's button boost is running, as a
+#                     multiplier of base run speed. 16.0 = 1600%. It must be at least DiveSpeed; the
+#                     boost lets a dive climb past the normal ceiling up to this value.
+#        Default:     16.0
 #
 
-ManaSpeedFlying.BoostAdd = 2.0
+ManaSpeedFlying.BoostSpeed = 16.0
+
+#
+#    ManaSpeedFlying.BoostMs
+#        Description: How long, in milliseconds, one boost lasts once fired. While it runs a dive is
+#                     allowed up to BoostSpeed; when it ends the speed settles back to DiveSpeed.
+#        Default:     4000
+#
+
+ManaSpeedFlying.BoostMs = 4000
+
+#
+#    ManaSpeedFlying.BoostCooldownMs
+#        Description: Cooldown, in milliseconds, before the next boost may fire. Shown as a swipe on
+#                     the client's boost button.
+#        Default:     8000
+#
+
+ManaSpeedFlying.BoostCooldownMs = 8000
+
+#
+#    ManaSpeedFlying.BoostMaxStacks
+#        Description: Most boost stacks the button may hold (0..3). Diving builds them: reaching 50%
+#                     of the way from LevelSpeed to DiveSpeed grants one, 80% two and the full dive
+#                     ceiling three. Each boost spends one stack.
+#        Default:     3
+#
+
+ManaSpeedFlying.BoostMaxStacks = 3
