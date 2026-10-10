@@ -43,8 +43,7 @@ ManaSpeedFlying.LevelSpeed = 2.8
 
 #
 #    ManaSpeedFlying.DiveSpeed
-#        Description: Flight speed while diving. 8.0 = 800%. This is the fastest. The old
-#                     ManaSpeedFlying.DescendSpeed key is still read for compatibility.
+#        Description: Flight speed while diving. 8.0 = 800%. This is the fastest.
 #        Default:     8.0
 #
 

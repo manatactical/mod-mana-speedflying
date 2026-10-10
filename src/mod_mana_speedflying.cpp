@@ -392,10 +392,7 @@ public:
         g_cfg.enabled      = sConfigMgr->GetOption<bool>("ManaSpeedFlying.Enable", true);
         g_cfg.climbSpeed   = sConfigMgr->GetOption<float>("ManaSpeedFlying.ClimbSpeed", 2.0f);
         g_cfg.levelSpeed   = sConfigMgr->GetOption<float>("ManaSpeedFlying.LevelSpeed", 2.8f);
-        // Prefer the current key; fall back to the pre-rename one so existing configs keep their speed.
-        const float diveSpeed = sConfigMgr->GetOption<float>("ManaSpeedFlying.DiveSpeed", -1.0f);
-        const float legacy    = sConfigMgr->GetOption<float>("ManaSpeedFlying.DescendSpeed", -1.0f);
-        g_cfg.diveSpeed = diveSpeed >= 0.0f ? diveSpeed : (legacy >= 0.0f ? legacy : 8.0f);
+        g_cfg.diveSpeed    = sConfigMgr->GetOption<float>("ManaSpeedFlying.DiveSpeed", 8.0f);
         g_cfg.blendMs      = sConfigMgr->GetOption<uint32>("ManaSpeedFlying.BlendMs", 5500);
         g_cfg.diveMs       = sConfigMgr->GetOption<uint32>("ManaSpeedFlying.DiveMs", 4000);
         g_cfg.glideMs      = sConfigMgr->GetOption<uint32>("ManaSpeedFlying.GlideMs", 18000);

@@ -68,7 +68,7 @@ comments. Defaults:
 ManaSpeedFlying.Enable       = 1
 ManaSpeedFlying.ClimbSpeed   = 2.0    ; 200%
 ManaSpeedFlying.LevelSpeed   = 2.8    ; 280%
-ManaSpeedFlying.DiveSpeed    = 8.0    ; 800% (old .DescendSpeed key still read)
+ManaSpeedFlying.DiveSpeed    = 8.0    ; 800%
 ManaSpeedFlying.BlendMs      = 5500   ; default blend, proportional to the span it covers
 ManaSpeedFlying.DiveMs       = 4000   ; accelerate into a dive
 ManaSpeedFlying.GlideMs      = 18000  ; long glide from a dive back to level
