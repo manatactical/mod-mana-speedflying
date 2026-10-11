@@ -113,6 +113,7 @@ namespace
         uint32 lastAnnounce = 0;          // ms of the last speed announce, for the slow resend
         int    stacks = 0;                // boost stacks held (to g_cfg.boostStacks)
         uint32 stackAccum = 0;            // ms accrued toward the next boost stack
+        uint32 stackInterval = 0;         // cadence stackAccum was accrued at; lets a switch rescale
         // A boost is an additive offset on the running transition, not a new transition of its own:
         // the state blend keeps running underneath and the offset fades to nothing, so the speed
         // lands back on the glide the mount already had instead of snapping to the plain state speed.
@@ -283,15 +284,17 @@ namespace
     // shake and boost button scale to the values actually in play and its stack count cannot drift from
     // the server's. Same "WXLMS" prefix the client already sends, body
     // "S:<levelPct>,<divePct>,<boostPct>,<cooldownMs>,<maxStacks>,<boostFadeMs>,<stacks>,<stackMs>,
-    // <stackDiveMs>"; the client polls
-    // its last addon message once a second and ignores a body it cannot parse. A UI reload on the client
-    // drops the value, which the slow resend covers.
-    void SendSpeedAnnounce(Player* player, int stacks)
+    // <stackDiveMs>,<stackAccumMs>,<stackIntervalMs>"; the client polls
+    // its last addon message, ignores a body it cannot parse, and uses the last two fields to anchor
+    // the orb's recharge bar to the server's exact position (an older server omits them). A UI reload
+    // on the client drops the value, which the slow resend covers.
+    void SendSpeedAnnounce(Player* player, int stacks, uint32 stackAccum, uint32 stackInterval)
     {
-        char body[112];
-        std::snprintf(body, sizeof(body), "S:%.3g,%.3g,%.3g,%u,%d,%u,%d,%u,%u", g_cfg.levelSpeed * 100.0f,
-                      g_cfg.diveSpeed * 100.0f, g_cfg.boostSpeed * 100.0f, 0u,
-                      g_cfg.boostStacks, g_cfg.boostFadeMs, stacks, g_cfg.stackMs, g_cfg.stackDiveMs);
+        char body[160];
+        std::snprintf(body, sizeof(body), "S:%.3g,%.3g,%.3g,%u,%d,%u,%d,%u,%u,%u,%u",
+                      g_cfg.levelSpeed * 100.0f, g_cfg.diveSpeed * 100.0f, g_cfg.boostSpeed * 100.0f, 0u,
+                      g_cfg.boostStacks, g_cfg.boostFadeMs, stacks, g_cfg.stackMs, g_cfg.stackDiveMs,
+                      stackAccum, stackInterval);
 
         // The client listens for the addon prefix on CHAT_MSG_ADDON, which the client's chat layer only
         // parses out of a LANG_ADDON chat packet -- so the prefix rides at the front, exactly as a
@@ -324,6 +327,7 @@ public:
 
         bool announce = false;
         int  stacksOut = 0;
+        uint32 accumOut = 0, intervalOut = 0;
         {
             std::lock_guard<std::mutex> guard(g_lock);
             PlayerState& st = g_states[player->GetGUID().GetRawValue()];
@@ -366,11 +370,13 @@ public:
                     default:  SetTarget(st, Motion::Level); break;
                 }
             }
-            stacksOut = st.stacks;
+            stacksOut   = st.stacks;
+            accumOut    = st.stackAccum;
+            intervalOut = st.motion == Motion::Dive ? g_cfg.stackDiveMs : g_cfg.stackMs;
         }
 
         if (announce)
-            SendSpeedAnnounce(player, stacksOut);
+            SendSpeedAnnounce(player, stacksOut, accumOut, intervalOut);
     }
 
     void OnPlayerUpdate(Player* player, uint32 p_time) override
@@ -389,7 +395,7 @@ public:
         bool   timedOut = false;
         Curve  curve;
         float  current, target, start, lastSent;
-        uint32 elapsed, duration, sendAccum, sinceLink, stackAccum;
+        uint32 elapsed, duration, sendAccum, sinceLink, stackAccum, stackInterval;
         float  boostStart, boostOffset;
         uint32 boostElapsed, boostDuration;
         Motion motion;
@@ -411,6 +417,7 @@ public:
             sinceLink = it->second.sinceLink;
             stacks     = it->second.stacks;
             stackAccum = it->second.stackAccum;
+            stackInterval = it->second.stackInterval;
             motion     = it->second.motion;
             boostStart    = it->second.boostStart;
             boostOffset   = it->second.boostOffset;
@@ -483,13 +490,18 @@ public:
         // Boost stacks build on a timer: one every StackIntervalMs, or every StackDiveIntervalMs
         // while diving, capped at the configured stock. The timer only runs while the mount is
         // link-eligible, so a grounded or unlinked mount earns nothing.
+        const uint32 stackIntervalNow = motion == Motion::Dive ? g_cfg.stackDiveMs : g_cfg.stackMs;
         if (stacks < g_cfg.boostStacks)
         {
-            const uint32 interval = motion == Motion::Dive ? g_cfg.stackDiveMs : g_cfg.stackMs;
-            if (interval)
+            if (stackIntervalNow)
             {
+                // A cadence switch keeps the fraction of progress already made, not the raw
+                // milliseconds: the bar holds its fill and the remaining work runs at the new rate.
+                if (stackInterval && stackInterval != stackIntervalNow && stackAccum)
+                    stackAccum = static_cast<uint32>(static_cast<uint64>(stackAccum) * stackIntervalNow /
+                                                     stackInterval);
                 stackAccum += p_time;
-                if (stackAccum >= interval)
+                if (stackAccum >= stackIntervalNow)
                 {
                     stackAccum = 0; // one stack per update: a single long p_time must never fill the bar
                     ++stacks;
@@ -498,6 +510,7 @@ public:
         }
         else
             stackAccum = 0;
+        stackInterval = stackIntervalNow;
 
         // The boost is an additive offset on top of the running transition, fading to nothing over
         // BoostFadeMs: fast at first, then slow. Because the underlying transition keeps running, the
@@ -551,6 +564,7 @@ public:
                 it->second.sinceLink = sinceLink;
                 it->second.stacks    = stacks;
                 it->second.stackAccum = stackAccum;
+                it->second.stackInterval = stackInterval;
                 it->second.boostStart = boostStart;
                 it->second.boostOffset = boostOffset;
                 it->second.boostElapsed = boostElapsed;
@@ -560,7 +574,7 @@ public:
         // A stack gained while diving is pushed at once, so the client button never lags the count the
         // next boost will actually spend.
         if (stackGained)
-            SendSpeedAnnounce(player, stacks);
+            SendSpeedAnnounce(player, stacks, stackAccum, stackInterval);
     }
 
     void OnPlayerLogout(Player* player) override

@@ -56,16 +56,21 @@ it has to know what that speed is. On the same `WXLMS` prefix the server replies
 values:
 
 ```
-WXLMS<TAB>S:<levelPct>,<divePct>,<boostPct>,<cooldownMs>,<maxStacks>,<boostFadeMs>,<stacks>,<stackMs>,<stackDiveMs>
-                                       e.g. WXLMS\tS:280,800,1600,0,3,4000,2,9000,3000
+WXLMS<TAB>S:<levelPct>,<divePct>,<boostPct>,<cooldownMs>,<maxStacks>,<boostFadeMs>,<stacks>,<stackMs>,<stackDiveMs>,<stackAccumMs>,<stackIntervalMs>
+                                       e.g. WXLMS\tS:280,800,1600,0,3,4000,2,9000,3000,1800,9000
 ```
 
-The client reads the last addon message once a second and uses `levelPct`/`divePct` as the empty and
-full ends of every speed effect, with `boostPct` as the boost ceiling and the two stack intervals as
-the recharge cadence. The reply goes out on the first link message and again every few
-seconds (which also recovers a client UI reload), so changing `ManaSpeedFlying.DiveSpeed` on the
-server is enough -- no matching edit in `wxl-mount-anim.ini` is needed. If the module is not
-installed, the client falls back to its own `GlideSpeedPct` / `MaxSpeedPct` defaults.
+The client reads the last addon message a few times a second and uses `levelPct`/`divePct` as the
+empty and full ends of every speed effect, with `boostPct` as the boost ceiling and the two stack
+intervals as the recharge cadence. The trailing `stackAccumMs`/`stackIntervalMs` are how far the
+server has already accrued toward the next stack and the cadence it accrued them at: the client
+anchors the orb's recharge bar to that exact position on every announce and only interpolates
+locally in between, so a spent or newly granted stack does not restart the bar on the client. (An
+older server that omits the two fields leaves the client running its own clock.) The reply goes out
+on the first link message and again every few seconds (which also recovers a client UI reload), so
+changing `ManaSpeedFlying.DiveSpeed` on the server is enough -- no matching edit in
+`wxl-mount-anim.ini` is needed. If the module is not installed, the client falls back to its own
+`GlideSpeedPct` / `MaxSpeedPct` defaults.
 
 ## Requirements
 
