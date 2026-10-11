@@ -272,10 +272,10 @@ namespace
     // drops the value, which the slow resend covers.
     void SendSpeedAnnounce(Player* player, int stacks)
     {
-        char body[80];
-        std::snprintf(body, sizeof(body), "S:%.3g,%.3g,%.3g,%u,%d,%u,%d", g_cfg.levelSpeed * 100.0f,
+        char body[112];
+        std::snprintf(body, sizeof(body), "S:%.3g,%.3g,%.3g,%u,%d,%u,%d,%u,%u", g_cfg.levelSpeed * 100.0f,
                       g_cfg.diveSpeed * 100.0f, g_cfg.boostSpeed * 100.0f, 0u,
-                      g_cfg.boostStacks, g_cfg.boostFadeMs, stacks);
+                      g_cfg.boostStacks, g_cfg.boostFadeMs, stacks, g_cfg.stackMs, g_cfg.stackDiveMs);
 
         // The client listens for the addon prefix on CHAT_MSG_ADDON, which the client's chat layer only
         // parses out of a LANG_ADDON chat packet -- so the prefix rides at the front, exactly as a
