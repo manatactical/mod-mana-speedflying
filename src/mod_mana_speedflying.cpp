@@ -111,6 +111,7 @@ namespace
         uint32 sinceLink = 0;             // ms since the last link message, for the timeout
         bool   announced = false;         // the client has been told the current speeds
         uint32 lastAnnounce = 0;          // ms of the last speed announce, for the slow resend
+        uint32 lastMsgMs = 0;             // ms of the last non-boost state message, for the flood guard
         int    stacks = 0;                // boost stacks held (to g_cfg.boostStacks)
         uint32 stackAccum = 0;            // ms accrued toward the next boost stack
         uint32 stackInterval = 0;         // cadence stackAccum was accrued at; lets a switch rescale
@@ -353,10 +354,12 @@ public:
                        { PLAYERHOOK_ON_BEFORE_SEND_CHAT_MESSAGE, PLAYERHOOK_ON_UPDATE, PLAYERHOOK_ON_LOGOUT }) {}
 
     // The client link. wxl-mount-anim senders are the only ones that matter; everything else on the
-    // addon channel is left as the core received it.
+    // addon channel is left as the core received it. The channel is untrusted: a '1' link is only
+    // applied to a flying player and a boost off the ground is dropped, but the server cannot tell a
+    // real client from a forged message -- it only ever sets a flight speed.
     void OnPlayerBeforeSendChatMessage(Player* player, uint32& /*type*/, uint32& lang, std::string& msg) override
     {
-        if (!g_cfg.enabled || !player || lang != LANG_ADDON)
+        if (!player || lang != LANG_ADDON)
             return;
         if (msg.size() < 8 || msg.compare(0, 6, "WXLMS\t") != 0)
             return;
@@ -365,22 +368,37 @@ public:
         const char state  = msg[7];
 
         bool announce = false;
-        int  stacksOut = 0;
-        uint32 accumOut = 0, intervalOut = 0;
         {
             std::lock_guard<std::mutex> guard(g_lock);
-            PlayerState& st = g_states[player->GetGUID().GetRawValue()];
+            if (!g_cfg.enabled)
+                return;
 
+            const uint64 guid = player->GetGUID().GetRawValue();
             if (advfly != '1')
             {
-                // Not an AdvFly mount (or no mount): the update path restores the core's own speed.
-                st.eligible = false;
+                // Not an AdvFly mount (or no mount): stand down without minting a state entry. The
+                // update path restores the core's own speed for a link that was up.
+                auto it = g_states.find(guid);
+                if (it != g_states.end())
+                {
+                    it->second.eligible  = false;
+                    it->second.announced = false;
+                }
                 return;
             }
 
+            PlayerState& st = g_states[guid];
+
+            const uint32 now = getMSTime();
+            // A client sends at most one message per ~200 ms; anything faster is a flood. Boost
+            // messages are never throttled (each spends a stack and must be answered), so the
+            // client's stack count cannot desync from a dropped one.
+            if (state != 'B' && st.lastMsgMs && now - st.lastMsgMs < 50)
+                return;
+            st.lastMsgMs = now;
+
             // First contact gets the server's speeds at once; after that a slow resend covers a client
             // UI reload (which wipes the value) without chattering on every state change.
-            const uint32 now = getMSTime();
             if (!st.announced || now - st.lastAnnounce >= 5000)
             {
                 st.announced    = true;
@@ -389,11 +407,14 @@ public:
             }
 
             // The button replenishes the glide: it lifts the speed and starts a fresh glide, so the
-            // added speed is spent as extra glide time instead of a fixed timed burst.
+            // added speed is spent as extra glide time instead of a fixed timed burst. The server only
+            // drives a flying mount, so a boost off the ground is answered (to keep the client's count
+            // honest) but not applied.
             if (state == 'B')
             {
                 st.sinceLink = 0;
-                ActivateBoost(st);
+                if (player->IsFlying())
+                    ActivateBoost(st);
                 // Answer every attempt with the authoritative count, spent or rejected, so a click the
                 // server ignored cannot leave the client button one stack off until the slow resend.
                 st.lastAnnounce = now;
@@ -409,18 +430,15 @@ public:
                     default:  SetTarget(st, Motion::Level); break;
                 }
             }
-            stacksOut   = st.stacks;
-            accumOut    = st.stackAccum;
-            intervalOut = st.motion == Motion::Dive ? g_cfg.stackDiveMs : g_cfg.stackMs;
+            if (announce)
+                SendSpeedAnnounce(player, st.stacks, st.stackAccum,
+                                  st.motion == Motion::Dive ? g_cfg.stackDiveMs : g_cfg.stackMs);
         }
-
-        if (announce)
-            SendSpeedAnnounce(player, stacksOut, accumOut, intervalOut);
     }
 
     void OnPlayerUpdate(Player* player, uint32 p_time) override
     {
-        if (!g_cfg.enabled || !player || !player->IsFlying() || player->IsInFlight() || player->GetVehicle())
+        if (!player || player->IsInFlight() || player->GetVehicle())
             return;
 
         // A lagging or suspended server (a local worldserver resumed from sleep, say) can hand us a
@@ -428,193 +446,157 @@ public:
         // and snap every transition -- in one tick. Bound it to a sane frame.
         p_time = std::min<uint32>(p_time, 1000);
 
-        const uint64 guid = player->GetGUID().GetRawValue();
+        const uint64 guid   = player->GetGUID().GetRawValue();
+        const bool   flying = player->IsFlying();
 
-        bool   eligible;
-        bool   timedOut = false;
-        Curve  curve;
-        float  current, target, start, lastSent;
-        uint32 elapsed, duration, sendAccum, sinceLink, stackAccum, stackInterval;
-        float  boostStart, boostOffset;
-        uint32 boostElapsed, boostDuration;
-        Motion motion;
-        int    stacks;
-        {
-            std::lock_guard<std::mutex> guard(g_lock);
-            auto it = g_states.find(guid);
-            if (it == g_states.end())
-                return;
-            eligible  = it->second.eligible;
-            current   = it->second.current;
-            target    = it->second.target;
-            start     = it->second.start;
-            elapsed   = it->second.elapsed;
-            duration  = it->second.duration;
-            curve     = it->second.curve;
-            lastSent  = it->second.lastSent;
-            sendAccum = it->second.sendAccum;
-            sinceLink = it->second.sinceLink;
-            stacks     = it->second.stacks;
-            stackAccum = it->second.stackAccum;
-            stackInterval = it->second.stackInterval;
-            motion     = it->second.motion;
-            boostStart    = it->second.boostStart;
-            boostOffset   = it->second.boostOffset;
-            boostElapsed  = it->second.boostElapsed;
-            boostDuration = it->second.boostDuration;
-        }
-        const int prevStacks = stacks;
+        // The whole read-modify-write runs under one lock: the chat hook can interleave a SetTarget or
+        // a boost, and a second lock later would let that update be overwritten by this tick's stale
+        // write-back. All config reads are inside this lock too, so a reload cannot tear them.
+        std::lock_guard<std::mutex> guard(g_lock);
 
-        if (eligible && g_cfg.timeoutMs)
+        auto it = g_states.find(guid);
+        if (it == g_states.end())
+            return;
+        PlayerState& st = it->second;
+
+        // Advance the link clock even while grounded, so a link that dies as the mount lands still
+        // times out instead of freezing eligible and resuming stale on the next take-off.
+        if (st.eligible && g_cfg.timeoutMs)
         {
-            sinceLink += p_time;
-            if (sinceLink > g_cfg.timeoutMs)
+            st.sinceLink += p_time;
+            if (st.sinceLink > g_cfg.timeoutMs)
             {
-                eligible = false; // link went quiet: the client is gone, stop driving the mount
-                timedOut = true;
+                st.eligible  = false; // link went quiet: the client is gone, stop driving the mount
+                st.announced = false; // force the speeds onto the next link
             }
         }
 
-        if (!eligible)
+        if (!g_cfg.enabled || !flying || !st.eligible)
         {
-            // Restore the mount's own speed once, then stay out of the way.
-            if (lastSent >= 0.0f)
+            // Restore the mount's own speed once and clear the running blend and boost, so a grounded,
+            // unlinked or switched-off mount cannot resume a stale rate on the next take-off. Banked
+            // boost stacks are kept: a grounded mount earns none, but does not lose the ones it built.
+            if (st.eligible)
+            {
+                st.eligible  = false;
+                st.announced = false;
+            }
+            if (st.lastSent >= 0.0f)
+            {
                 player->UpdateSpeed(MOVE_FLIGHT, true);
-            std::lock_guard<std::mutex> guard(g_lock);
-            auto it = g_states.find(guid);
-            if (it != g_states.end())
-            {
-                if (timedOut)
-                    it->second.eligible = false;
-                it->second.current   = 0.0f;
-                it->second.lastSent  = -1.0f;
-                it->second.sendAccum = 0;
-                it->second.sinceLink = sinceLink;
-                it->second.stacks    = 0;
-                it->second.stackAccum = 0;
-                it->second.boostStart = 0.0f;
-                it->second.boostOffset = 0.0f;
-                it->second.boostElapsed = 0;
-                it->second.boostDuration = 0;
-                it->second.pendingCarry = 0.0f;
+                st.lastSent = -1.0f;
             }
+            st.current       = 0.0f;
+            st.target        = 0.0f;
+            st.start         = 0.0f;
+            st.elapsed       = 0;
+            st.duration      = 0;
+            st.fromDive      = false;
+            st.sendAccum     = 0;
+            st.stackAccum    = 0; // grounded earns nothing: do not resume half a stack on take-off
+            st.stackInterval = 0;
+            st.boostStart    = 0.0f;
+            st.boostOffset   = 0.0f;
+            st.boostElapsed  = 0;
+            st.boostDuration = 0;
+            st.pendingCarry  = 0.0f;
             return;
         }
 
         // Eased transition from `start` to `target` over `duration`. This keeps running under a
         // boost, so the boost is only an offset added on top of it below.
-        if (duration == 0)
+        if (st.duration == 0)
         {
-            current = target;
+            st.current = st.target;
         }
         else
         {
-            elapsed += p_time;
-            if (elapsed >= duration)
+            st.elapsed += p_time;
+            if (st.elapsed >= st.duration)
             {
-                elapsed = duration;
-                current = target;
+                st.elapsed = st.duration;
+                st.current = st.target;
             }
             else
             {
-                const float p = static_cast<float>(elapsed) / static_cast<float>(duration);
+                const float p = static_cast<float>(st.elapsed) / static_cast<float>(st.duration);
                 float e = p;
-                if (curve == Curve::EaseIn)
+                if (st.curve == Curve::EaseIn)
                     e = p * p;
-                else if (curve == Curve::Dive)
+                else if (st.curve == Curve::Dive)
                     e = p * (0.35f + 0.65f * p); // kick off the line, then keep accelerating
-                current = start + (target - start) * e;
+                st.current = st.start + (st.target - st.start) * e;
             }
         }
 
         // Boost stacks build on a timer: one every StackIntervalMs, or every StackDiveIntervalMs
         // while diving, capped at the configured stock. The timer only runs while the mount is
         // link-eligible, so a grounded or unlinked mount earns nothing.
-        const uint32 stackIntervalNow = motion == Motion::Dive ? g_cfg.stackDiveMs : g_cfg.stackMs;
-        if (stacks < g_cfg.boostStacks)
+        const int    prevStacks       = st.stacks;
+        const uint32 stackIntervalNow = st.motion == Motion::Dive ? g_cfg.stackDiveMs : g_cfg.stackMs;
+        if (st.stacks < g_cfg.boostStacks)
         {
             if (stackIntervalNow)
             {
                 // A cadence switch keeps the fraction of progress already made, not the raw
                 // milliseconds: the bar holds its fill and the remaining work runs at the new rate.
-                if (stackInterval && stackInterval != stackIntervalNow && stackAccum)
-                    stackAccum = static_cast<uint32>(static_cast<uint64>(stackAccum) * stackIntervalNow /
-                                                     stackInterval);
-                stackAccum += p_time;
-                if (stackAccum >= stackIntervalNow)
+                if (st.stackInterval && st.stackInterval != stackIntervalNow && st.stackAccum)
+                    st.stackAccum = static_cast<uint32>(static_cast<uint64>(st.stackAccum) * stackIntervalNow /
+                                                        st.stackInterval);
+                st.stackAccum += p_time;
+                if (st.stackAccum >= stackIntervalNow)
                 {
-                    stackAccum = 0; // one stack per update: a single long p_time must never fill the bar
-                    ++stacks;
+                    st.stackAccum = 0; // one stack per update: a single long p_time must never fill the bar
+                    ++st.stacks;
                 }
             }
         }
         else
-            stackAccum = 0;
-        stackInterval = stackIntervalNow;
+            st.stackAccum = 0;
+        st.stackInterval = stackIntervalNow;
 
         // The boost is an additive offset on top of the running transition, fading to nothing over
         // BoostFadeMs: fast at first, then slow. Because the underlying transition keeps running, the
         // speed lands back on exactly the glide the mount had before the boost instead of snapping to
         // the plain state speed.
-        if (boostDuration)
+        if (st.boostDuration)
         {
-            boostElapsed += p_time;
-            if (boostElapsed >= boostDuration)
+            st.boostElapsed += p_time;
+            if (st.boostElapsed >= st.boostDuration)
             {
-                boostOffset   = 0.0f;
-                boostElapsed  = 0;
-                boostDuration = 0;
+                st.boostOffset   = 0.0f;
+                st.boostElapsed  = 0;
+                st.boostDuration = 0;
             }
             else
             {
-                const float p    = static_cast<float>(boostElapsed) / static_cast<float>(boostDuration);
+                const float p    = static_cast<float>(st.boostElapsed) / static_cast<float>(st.boostDuration);
                 const float keep = (1.0f - p) * (1.0f - p); // fast at first, then slow
-                boostOffset = boostStart * keep;
+                st.boostOffset = st.boostStart * keep;
             }
         }
 
-        const float applied = std::min(g_cfg.boostSpeed, current + boostOffset);
+        const float applied = std::min(g_cfg.boostSpeed, st.current + st.boostOffset);
         // Settled once the base transition is done and any boost has fully faded, so the exact final
         // value is always pushed. Testing `current == target` instead would fire every tick during a
         // boost fade (the base is settled but the offset is not), defeating the SendMs throttle.
-        const bool settled = (applied == target && boostDuration == 0);
+        const bool settled = (applied == st.target && st.boostDuration == 0);
 
-        sendAccum += p_time;
-        if (sendAccum >= g_cfg.sendMs || settled)
+        st.sendAccum += p_time;
+        if (st.sendAccum >= g_cfg.sendMs || settled)
         {
-            sendAccum = 0;
-            if (applied != lastSent)
+            st.sendAccum = 0;
+            if (applied != st.lastSent)
             {
                 player->SetSpeed(MOVE_FLIGHT, applied, true);
-                lastSent = applied;
+                st.lastSent = applied;
             }
         }
 
-        bool stackGained = false;
-        {
-            std::lock_guard<std::mutex> guard(g_lock);
-            auto it = g_states.find(guid);
-            if (it != g_states.end())
-            {
-                stackGained          = stacks != prevStacks;
-                it->second.current   = current;
-                it->second.elapsed   = elapsed;
-                it->second.lastSent  = lastSent;
-                it->second.sendAccum = sendAccum;
-                it->second.sinceLink = sinceLink;
-                it->second.stacks    = stacks;
-                it->second.stackAccum = stackAccum;
-                it->second.stackInterval = stackInterval;
-                it->second.boostStart = boostStart;
-                it->second.boostOffset = boostOffset;
-                it->second.boostElapsed = boostElapsed;
-                it->second.boostDuration = boostDuration;
-            }
-        }
         // A stack gained while diving is pushed at once, so the client button never lags the count the
         // next boost will actually spend.
-        if (stackGained)
-            SendSpeedAnnounce(player, stacks, stackAccum, stackInterval);
+        if (st.stacks != prevStacks)
+            SendSpeedAnnounce(player, st.stacks, st.stackAccum, st.stackInterval);
     }
 
     void OnPlayerLogout(Player* player) override
@@ -634,40 +616,51 @@ public:
 
     void OnAfterConfigLoad(bool /*reload*/) override
     {
-        g_cfg.enabled      = sConfigMgr->GetOption<bool>("ManaSpeedFlying.Enable", true);
-        g_cfg.climbSpeed   = sConfigMgr->GetOption<float>("ManaSpeedFlying.ClimbSpeed", 2.0f);
-        g_cfg.levelSpeed   = sConfigMgr->GetOption<float>("ManaSpeedFlying.LevelSpeed", 2.8f);
-        g_cfg.diveSpeed    = sConfigMgr->GetOption<float>("ManaSpeedFlying.DiveSpeed", 8.0f);
-        g_cfg.blendMs      = sConfigMgr->GetOption<uint32>("ManaSpeedFlying.BlendMs", 5500);
-        g_cfg.diveMs       = sConfigMgr->GetOption<uint32>("ManaSpeedFlying.DiveMs", 4000);
-        g_cfg.glideMs      = sConfigMgr->GetOption<uint32>("ManaSpeedFlying.GlideMs", 18000);
-        g_cfg.climbDecelMs = sConfigMgr->GetOption<uint32>("ManaSpeedFlying.ClimbDecelMs", 3500);
-        g_cfg.hoverMs      = sConfigMgr->GetOption<uint32>("ManaSpeedFlying.HoverMs", 500);
-        g_cfg.sendMs       = sConfigMgr->GetOption<uint32>("ManaSpeedFlying.SendMs", 150);
-        g_cfg.timeoutMs    = sConfigMgr->GetOption<uint32>("ManaSpeedFlying.TimeoutMs", 2500);
-        g_cfg.boostAdd     = sConfigMgr->GetOption<float>("ManaSpeedFlying.BoostAdd", 4.0f);
-        g_cfg.boostSpeed   = sConfigMgr->GetOption<float>("ManaSpeedFlying.BoostSpeed", 16.0f);
-        g_cfg.boostFadeMs  = sConfigMgr->GetOption<uint32>("ManaSpeedFlying.BoostFadeMs", 4000);
-        g_cfg.boostCarryPct = sConfigMgr->GetOption<float>("ManaSpeedFlying.BoostCarryPct", 0.50f);
-        g_cfg.boostStacks  = sConfigMgr->GetOption<int>("ManaSpeedFlying.BoostMaxStacks", 3);
-        g_cfg.stackMs      = sConfigMgr->GetOption<uint32>("ManaSpeedFlying.StackIntervalMs", 9000);
-        g_cfg.stackDiveMs  = sConfigMgr->GetOption<uint32>("ManaSpeedFlying.StackDiveIntervalMs", 3000);
+        Config cfg;
+        cfg.enabled      = sConfigMgr->GetOption<bool>("ManaSpeedFlying.Enable", true);
+        cfg.climbSpeed   = sConfigMgr->GetOption<float>("ManaSpeedFlying.ClimbSpeed", 2.0f);
+        cfg.levelSpeed   = sConfigMgr->GetOption<float>("ManaSpeedFlying.LevelSpeed", 2.8f);
+        cfg.diveSpeed    = sConfigMgr->GetOption<float>("ManaSpeedFlying.DiveSpeed", 8.0f);
+        cfg.blendMs      = sConfigMgr->GetOption<uint32>("ManaSpeedFlying.BlendMs", 5500);
+        cfg.diveMs       = sConfigMgr->GetOption<uint32>("ManaSpeedFlying.DiveMs", 4000);
+        cfg.glideMs      = sConfigMgr->GetOption<uint32>("ManaSpeedFlying.GlideMs", 18000);
+        cfg.climbDecelMs = sConfigMgr->GetOption<uint32>("ManaSpeedFlying.ClimbDecelMs", 3500);
+        cfg.hoverMs      = sConfigMgr->GetOption<uint32>("ManaSpeedFlying.HoverMs", 500);
+        cfg.sendMs       = sConfigMgr->GetOption<uint32>("ManaSpeedFlying.SendMs", 150);
+        cfg.timeoutMs    = sConfigMgr->GetOption<uint32>("ManaSpeedFlying.TimeoutMs", 2500);
+        cfg.boostAdd     = sConfigMgr->GetOption<float>("ManaSpeedFlying.BoostAdd", 4.0f);
+        cfg.boostSpeed   = sConfigMgr->GetOption<float>("ManaSpeedFlying.BoostSpeed", 16.0f);
+        cfg.boostFadeMs  = sConfigMgr->GetOption<uint32>("ManaSpeedFlying.BoostFadeMs", 4000);
+        cfg.boostCarryPct = sConfigMgr->GetOption<float>("ManaSpeedFlying.BoostCarryPct", 0.50f);
+        cfg.boostStacks  = sConfigMgr->GetOption<int>("ManaSpeedFlying.BoostMaxStacks", 3);
+        cfg.stackMs      = sConfigMgr->GetOption<uint32>("ManaSpeedFlying.StackIntervalMs", 9000);
+        cfg.stackDiveMs  = sConfigMgr->GetOption<uint32>("ManaSpeedFlying.StackDiveIntervalMs", 3000);
 
-        g_cfg.climbSpeed   = std::max(g_cfg.climbSpeed,   0.1f);
-        g_cfg.levelSpeed   = std::max(g_cfg.levelSpeed,   0.1f);
-        g_cfg.diveSpeed    = std::max(g_cfg.diveSpeed,    0.1f);
-        g_cfg.boostAdd     = std::max(g_cfg.boostAdd,     0.0f);
-        g_cfg.boostSpeed   = std::max(g_cfg.boostSpeed,   g_cfg.diveSpeed);
-        g_cfg.boostStacks  = std::max(0, std::min(g_cfg.boostStacks, 3));
-        g_cfg.boostCarryPct = std::max(0.0f, std::min(g_cfg.boostCarryPct, 1.0f));
-        if (!g_cfg.boostFadeMs) g_cfg.boostFadeMs = 1;
-        if (!g_cfg.stackMs) g_cfg.stackMs = 1;
-        if (!g_cfg.stackDiveMs) g_cfg.stackDiveMs = 1;
-        if (!g_cfg.sendMs) g_cfg.sendMs = 1;
+        cfg.climbSpeed   = std::max(cfg.climbSpeed,   0.1f);
+        cfg.levelSpeed   = std::max(cfg.levelSpeed,   0.1f);
+        cfg.diveSpeed    = std::max(cfg.diveSpeed,    0.1f);
+        cfg.boostAdd     = std::max(cfg.boostAdd,     0.0f);
+        // The boost ceiling must sit at or above the fastest state speed, or the min() in the update
+        // path would clamp ordinary (unboosted) level/climb flight below its configured rate.
+        cfg.boostSpeed   = std::max(cfg.boostSpeed,
+                                    std::max(cfg.climbSpeed, std::max(cfg.levelSpeed, cfg.diveSpeed)));
+        cfg.boostStacks  = std::max(0, std::min(cfg.boostStacks, 3));
+        cfg.boostCarryPct = std::max(0.0f, std::min(cfg.boostCarryPct, 1.0f));
+        if (!cfg.boostFadeMs) cfg.boostFadeMs = 1;
+        if (!cfg.stackMs) cfg.stackMs = 1;
+        if (!cfg.stackDiveMs) cfg.stackDiveMs = 1;
+        if (!cfg.sendMs) cfg.sendMs = 1;
 
-        // A config change drops every link; the client's next heartbeat picks it back up.
+        // Publish the new config and drop every link under the lock readers take. The entries are kept
+        // (only marked ineligible) so the update path can restore each mount's own speed: clearing the
+        // map would leave the last blended rate applied with nothing left to repair it.
         std::lock_guard<std::mutex> guard(g_lock);
-        g_states.clear();
+        g_cfg = cfg;
+        for (auto& kv : g_states)
+        {
+            kv.second.eligible  = false;
+            kv.second.announced = false;
+        }
     }
 };
 

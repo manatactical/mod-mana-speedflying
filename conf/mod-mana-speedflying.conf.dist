@@ -140,8 +140,9 @@ ManaSpeedFlying.BoostAdd = 4.0
 #
 #    ManaSpeedFlying.BoostSpeed
 #        Description: Hard ceiling a boost may lift the mount to, as a multiplier of base run speed.
-#                     16.0 = 1600%. It must be at least DiveSpeed. A boost adds BoostAdd to the
-#                     current speed, up to this value.
+#                     16.0 = 1600%. It is raised to at least the fastest configured state speed if
+#                     set lower, so it can never clamp normal (unboosted) flight. A boost adds
+#                     BoostAdd to the current speed, up to this value.
 #        Default:     16.0
 #
 

@@ -104,7 +104,8 @@ ManaSpeedFlying.HoverMs      = 500    ; fixed accel/decel zone leaving a hover
 ManaSpeedFlying.SendMs       = 150
 ManaSpeedFlying.TimeoutMs    = 2500   ; restore the mount's own speed if the link goes quiet
 ManaSpeedFlying.BoostAdd     = 4.0    ; 400%: speed one boost adds to the glide
-ManaSpeedFlying.BoostSpeed   = 16.0   ; 1600%: hard boost ceiling (>= DiveSpeed)
+ManaSpeedFlying.BoostSpeed   = 16.0   ; 1600%: hard boost ceiling (raised to the fastest state
+                                     ; speed if set lower)
 ManaSpeedFlying.BoostFadeMs  = 4000   ; how fast the burst bleeds back to the state speed
 ManaSpeedFlying.BoostCarryPct = 0.50  ; fraction of the boost folded into the glide
 ManaSpeedFlying.BoostMaxStacks  = 3   ; 0..3, recharged on a timer
@@ -141,9 +142,11 @@ few seconds.
 ## Notes
 
 - The client→server channel is an addon whisper to self. It is throttled on the client (about one
-  message per 200 ms, plus a 1 s heartbeat) and carries no gameplay authority: the server only ever
-  sets a flight speed. A forged message can at worst ask for one of the three configured speeds on
-  a flying player.
+  message per 200 ms, plus a 1 s heartbeat) and the server treats it as untrusted input: a `1` link
+  is only honoured for a flying player, a boost off the ground is answered but not applied, and a
+  message flood is dropped. The server only ever sets a flight speed, so a forged link can at worst
+  ask for one of the three configured state speeds -- or, while actually flying, spend the same boost
+  stacks a legitimate client would have had to build.
 - If the client module is unloaded, disabled or crashes mid-flight, `TimeoutMs` restores the mount's
   own speed and the module stands down until the next link message.
 - Some servers apply mount-speed auras that recompute the flight rate when mounting or on buffs. The
