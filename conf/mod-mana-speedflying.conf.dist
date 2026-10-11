@@ -162,18 +162,18 @@ ManaSpeedFlying.BoostFadeMs = 4000
 #
 #    ManaSpeedFlying.BoostCarryPct
 #        Description: Fraction (0..1) of a boost's added speed that is folded into the ordinary
-#                     glide instead of the short boost fade. At 0.20, a fifth of every boost is
+#                     glide instead of the short boost fade. At 0.50, half of every boost is
 #                     replenished as glide time and bleeds off on the long dive-glide curve, so the
 #                     mount still carries speed seconds after the burst is gone. 0 makes the boost a
-#                     pure short burst. A boost spent while climbing never folds *during* the climb --
-#                     there is no glide to fold into -- so it is a pure burst that settles back to
-#                     ClimbSpeed. On leveling out of that climb the still-fading burst is folded into
-#                     the level glide, so the built-up speed bleeds on the long GlideMs curve rather
-#                     than the short boost fade.
-#        Default:     0.20
+#                     pure short burst. A boost spent while climbing banks its carried half (a climb
+#                     is not a glide, so there is nothing to fold into *during* the climb); the
+#                     moment you level out, that banked half is released onto a long ease-in glide
+#                     sized by the carry -- a full BoostAdd of carry gets the full GlideMs -- so the
+#                     built-up speed does not empty in three or four seconds.
+#        Default:     0.50
 #
 
-ManaSpeedFlying.BoostCarryPct = 0.20
+ManaSpeedFlying.BoostCarryPct = 0.50
 
 #
 #    ManaSpeedFlying.BoostMaxStacks

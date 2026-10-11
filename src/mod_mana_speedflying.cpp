@@ -74,7 +74,7 @@ namespace
         float  boostAdd     = 4.0f;  // 400%: the speed one boost adds back to the glide
         float  boostSpeed   = 16.0f; // 1600%: hard ceiling a boost may lift the speed to
         uint32 boostFadeMs  = 4000;  // how fast a boost's added speed bleeds back to the state speed
-        float  boostCarryPct = 0.20f; // fraction of a boost folded into the glide to outlast the fade
+        float  boostCarryPct = 0.50f; // fraction of a boost folded into the glide to outlast the fade
         int    boostStacks  = 3;     // most boost stacks the button can hold
         uint32 stackMs      = 9000;  // ms between boost stacks in normal flight
         uint32 stackDiveMs  = 3000;  // ms between boost stacks while diving
@@ -121,6 +121,7 @@ namespace
         float  boostOffset = 0.0f;        // the still-decaying part of that offset
         uint32 boostElapsed = 0;          // ms into the fade
         uint32 boostDuration = 0;         // ms the fade runs for; 0 = no boost running
+        float  pendingCarry = 0.0f;       // boost carry banked while climbing, released when the climb ends
     };
 
     std::mutex g_lock;
@@ -190,8 +191,9 @@ namespace
     // The button boost: spends a stack and adds BoostAdd to the speed right now as an offset on top
     // of whatever blend is running. The offset fades over BoostFadeMs (fast at first, then slow).
     // BoostCarryPct of the added speed is not part of that offset: it is folded into the running
-    // transition instead, so it bleeds off over the ordinary glide and the boost still pays speed
-    // seconds after the burst is gone. There is no cooldown, so held stacks can be chained.
+    // transition (or banked until a climb levels out) instead, so it bleeds off over the ordinary
+    // glide and the boost still pays speed seconds after the burst is gone. There is no cooldown, so
+    // held stacks can be chained.
     void ActivateBoost(PlayerState& st)
     {
         if (!st.eligible || st.stacks <= 0)
@@ -211,16 +213,22 @@ namespace
         const float add = boosted - applied;
         float carry     = add * g_cfg.boostCarryPct;
 
-        // Replenish part of the boost as ordinary glide time: raise the base transition and restart
-        // its fade from there, so the carry decays on the long dive-glide curve, not the short boost
-        // one. Only fold it when the base is decelerating (current at or above target); while a dive
-        // is still accelerating, folding it would stall the climb to DiveSpeed, so the whole boost
-        // stays in the burst offset instead. A climb is excluded on purpose: it is not a glide, so
-        // folding the carry here would restart the transition on the long GlideMs EaseIn curve and a
-        // boost spent climbing would hold its speed far longer than the climb itself, draining the
-        // bar slowly instead of settling back to ClimbSpeed. The distance is abs()'d: an early-dive
-        // fold could otherwise be negative and wrap the duration to a multi-day stall.
-        if (carry > 0.0f && st.current >= st.target && st.motion != Motion::Climb)
+        // Replenish part of the boost as ordinary glide time. A climb is not a glide, so its carry
+        // is banked: folding it into the running transition would restart that transition on the
+        // long GlideMs EaseIn curve and hold speed past the climb. SetTarget releases the banked
+        // carry when the climb ends -- on leveling out it rides its own long glide, so the retained
+        // half becomes glide time instead of emptying in a few seconds.
+        if (carry > 0.0f && st.motion == Motion::Climb)
+        {
+            st.pendingCarry += carry;
+        }
+        // Otherwise raise the base transition and restart its fade from there, so the carry decays
+        // on the long dive-glide curve, not the short boost one. Only fold it when the base is
+        // decelerating (current at or above target); while a dive is still accelerating, folding it
+        // would stall the climb to DiveSpeed, so the whole boost stays in the burst offset instead.
+        // The distance is abs()'d: an early-dive fold could otherwise be negative and wrap the
+        // duration to a multi-day stall.
+        else if (carry > 0.0f && st.current >= st.target)
         {
             st.start    = st.current + carry;
             st.current  = st.start;
@@ -257,6 +265,7 @@ namespace
             st.duration  = 0;
             st.curve     = Curve::Linear;
             st.fromDive  = false;
+            st.pendingCarry = 0.0f;
             st.lastSent  = -1.0f;
             st.sendAccum = g_cfg.sendMs; // force the first packet out on the next update
             return;
@@ -273,18 +282,20 @@ namespace
         if (m == Motion::Climb)
             st.fromDive = (prev == Motion::Dive);
 
-        // Leveling out of a climb: a boost spent climbing was never folded into a glide (a climb
-        // is not one), so its still-fading burst had nothing to land on but the short fade and the
-        // momentum was gone in a few seconds. Fold the whole remaining offset into the base
-        // transition now, so it bleeds on the long EaseIn glide instead of the boost curve. The
-        // applied speed is continuous: the base simply starts where `current + boostOffset` was.
-        if (prev == Motion::Climb && m == Motion::Level && st.boostOffset > 0.0f)
+        // Leaving a climb releases the boost carry that was banked there (a climb is not a glide, so
+        // it had nowhere to fold). On leveling out it is added to the level speed and rides the long
+        // ease-in glide down; the still-fading burst keeps running on top and bleeds off on its own.
+        // Any other change out of the climb just carries it into the new transition.
+        float foldedCarry = 0.0f;
+        if (prev == Motion::Climb && st.pendingCarry > 0.0f)
         {
-            st.current    = std::min(g_cfg.boostSpeed, st.current + st.boostOffset);
-            st.boostStart  = 0.0f;
-            st.boostOffset = 0.0f;
-            st.boostElapsed  = 0;
-            st.boostDuration = 0;
+            // Leveling out glides from the level speed, so the retained half is measured above the
+            // line the mount is settling onto rather than the slower climb speed. A pull-out that
+            // still carries dive speed keeps its higher current speed instead.
+            const float base = (m == Motion::Level) ? std::max(st.current, RateFor(m)) : st.current;
+            foldedCarry = std::min(st.pendingCarry, std::max(0.0f, g_cfg.boostSpeed - base));
+            st.current = base + foldedCarry;
+            st.pendingCarry = 0.0f;
         }
 
         st.start    = st.current;
@@ -292,6 +303,19 @@ namespace
         st.elapsed  = 0;
         st.duration = DurationFor(st, m);
         st.curve    = CurveFor(st, m);
+        // A banked carry pays for its own glide: a full BoostAdd of carry buys the full GlideMs, a
+        // smaller carry proportionally less, so the retained speed is not dumped in three or four
+        // seconds. Keep whichever glide is longer, so a pull-out that still carries dive speed is
+        // never shortened.
+        if (m == Motion::Level && foldedCarry > 0.0f && g_cfg.boostAdd > 0.0f)
+        {
+            const uint32 carryDur = ScaledMs(g_cfg.glideMs, foldedCarry, g_cfg.boostAdd);
+            if (carryDur > st.duration)
+            {
+                st.duration = carryDur;
+                st.curve    = Curve::EaseIn;
+            }
+        }
         st.motion   = m;
     }
 
@@ -472,6 +496,7 @@ public:
                 it->second.boostOffset = 0.0f;
                 it->second.boostElapsed = 0;
                 it->second.boostDuration = 0;
+                it->second.pendingCarry = 0.0f;
             }
             return;
         }
@@ -623,7 +648,7 @@ public:
         g_cfg.boostAdd     = sConfigMgr->GetOption<float>("ManaSpeedFlying.BoostAdd", 4.0f);
         g_cfg.boostSpeed   = sConfigMgr->GetOption<float>("ManaSpeedFlying.BoostSpeed", 16.0f);
         g_cfg.boostFadeMs  = sConfigMgr->GetOption<uint32>("ManaSpeedFlying.BoostFadeMs", 4000);
-        g_cfg.boostCarryPct = sConfigMgr->GetOption<float>("ManaSpeedFlying.BoostCarryPct", 0.20f);
+        g_cfg.boostCarryPct = sConfigMgr->GetOption<float>("ManaSpeedFlying.BoostCarryPct", 0.50f);
         g_cfg.boostStacks  = sConfigMgr->GetOption<int>("ManaSpeedFlying.BoostMaxStacks", 3);
         g_cfg.stackMs      = sConfigMgr->GetOption<uint32>("ManaSpeedFlying.StackIntervalMs", 9000);
         g_cfg.stackDiveMs  = sConfigMgr->GetOption<uint32>("ManaSpeedFlying.StackDiveIntervalMs", 3000);

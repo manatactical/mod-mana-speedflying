@@ -22,7 +22,8 @@ beat slowly on the way up, the glide rushes on the way down. The speed does not 
   way) so the built-up speed can be felt, then brakes hard into `ClimbSpeed`.
 - **Diving, then climb, then level** (the pull-up is cut short) still carries the leftover dive
   speed: it glides out over `GlideMs` like a pull-out instead of blending like a fresh climb. A
-  boost spent during that climb is folded into this glide too, so the momentum is not lost.
+  boost spent during that climb is banked and released onto that glide too, so the momentum is not
+  lost.
 - Leaving a **hover** (a parked mount) uses a fixed, tiny `HoverMs` zone whatever it heads into --
   climb, level or dive -- so a take-off responds at once instead of ramping from a standstill.
 - Every other change blends over `BlendMs`, spread over how far the speed has to move.
@@ -105,7 +106,7 @@ ManaSpeedFlying.TimeoutMs    = 2500   ; restore the mount's own speed if the lin
 ManaSpeedFlying.BoostAdd     = 4.0    ; 400%: speed one boost adds to the glide
 ManaSpeedFlying.BoostSpeed   = 16.0   ; 1600%: hard boost ceiling (>= DiveSpeed)
 ManaSpeedFlying.BoostFadeMs  = 4000   ; how fast the burst bleeds back to the state speed
-ManaSpeedFlying.BoostCarryPct = 0.20  ; fraction of the boost folded into the glide
+ManaSpeedFlying.BoostCarryPct = 0.50  ; fraction of the boost folded into the glide
 ManaSpeedFlying.BoostMaxStacks  = 3   ; 0..3, recharged on a timer
 ManaSpeedFlying.StackIntervalMs     = 9000 ; normal-flight stack recharge
 ManaSpeedFlying.StackDiveIntervalMs = 3000 ; diving stack recharge
@@ -130,11 +131,12 @@ default) to the mount's current speed, up to the `BoostSpeed` ceiling. There is 
 stacks can be chained into one bigger burst. `BoostFadeMs` is how long the burst takes to bleed back
 to the glide the mount already had, and `BoostCarryPct` folds a slice of every boost into the
 ordinary glide (it decays on the long `GlideMs` curve), so a boost is still felt seconds after the
-burst is gone. A boost spent while climbing is not folded *during* the climb: a climb is not a glide,
-so the whole boost is the short burst and the speed settles back to `ClimbSpeed` on the climb's own
-transition. The moment you level out, however, the still-fading burst is folded into the level glide,
-so the speed you built climbing is carried onto the long `GlideMs` curve instead of emptying in a few
-seconds.
+burst is gone. A boost spent while climbing has nowhere to fold *during* the climb -- a climb is not
+a glide -- so its carried half is banked, the other half is the short burst, and the speed settles
+back to `ClimbSpeed` on the climb's own transition. The moment you level out, the banked half is
+released onto a long ease-in glide sized by the carry: a full `BoostAdd` of carry buys the full
+`GlideMs`, a smaller carry proportionally less. So the speed you built climbing does not empty in a
+few seconds.
 
 ## Notes
 
