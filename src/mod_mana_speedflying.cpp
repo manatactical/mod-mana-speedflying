@@ -195,7 +195,9 @@ namespace
     {
         if (!st.eligible || st.stacks <= 0)
             return;
-        if (st.motion != Motion::Dive && st.motion != Motion::Level)
+        // Usable while climbing, diving or gliding level. Only a hover (a parked mount) is left out,
+        // so a boost cannot be spent to bank speed before a take-off.
+        if (st.motion != Motion::Dive && st.motion != Motion::Level && st.motion != Motion::Climb)
             return;
 
         const float applied = st.current + st.boostOffset;

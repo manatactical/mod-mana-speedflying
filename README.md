@@ -119,7 +119,7 @@ ManaSpeedFlying.StackDiveIntervalMs = 3000 ; diving stack recharge
 Boost stacks recharge on a timer: one every `StackIntervalMs` (9 s) in normal flight, or every
 `StackDiveIntervalMs` (3 s) while diving, up to `BoostMaxStacks`. The timer only runs while the mount
 is link-eligible (flying, AdvFly mount), so a grounded mount earns nothing. Each press of the client's
-boost button (can be used while diving or gliding level) spends one stack and adds `BoostAdd` (400% by
+boost button (can be used while climbing, diving or gliding level) spends one stack and adds `BoostAdd` (400% by
 default) to the mount's current speed, up to the `BoostSpeed` ceiling. There is no cooldown, so held
 stacks can be chained into one bigger burst. `BoostFadeMs` is how long the burst takes to bleed back
 to the glide the mount already had, and `BoostCarryPct` folds a slice of every boost into the
