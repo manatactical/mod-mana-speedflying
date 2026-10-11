@@ -72,6 +72,7 @@ namespace
         float  boostAdd     = 4.0f;  // 400%: the speed one boost adds back to the glide
         float  boostSpeed   = 16.0f; // 1600%: hard ceiling a boost may lift the speed to
         uint32 boostFadeMs  = 4000;  // how fast a boost's added speed bleeds back to the state speed
+        float  boostCarryPct = 0.20f; // fraction of a boost folded into the glide to outlast the fade
         int    boostStacks  = 3;     // most boost stacks the button can hold
         uint32 stackMs      = 9000;  // ms between boost stacks in normal flight
         uint32 stackDiveMs  = 3000;  // ms between boost stacks while diving
@@ -182,9 +183,10 @@ namespace
     }
 
     // The button boost: spends a stack and adds BoostAdd to the speed right now as an offset on top
-    // of whatever blend is running. The offset fades over BoostFadeMs (fast at first, then slow), so
-    // the mount returns to the exact glide it had. There is no cooldown: holding several stacks lets
-    // them be chained, and each one stacks onto the speed still left from the last.
+    // of whatever blend is running. The offset fades over BoostFadeMs (fast at first, then slow).
+    // BoostCarryPct of the added speed is not part of that offset: it is folded into the running
+    // transition instead, so it bleeds off over the ordinary glide and the boost still pays speed
+    // seconds after the burst is gone. There is no cooldown, so held stacks can be chained.
     void ActivateBoost(PlayerState& st)
     {
         if (!st.eligible || st.stacks <= 0)
@@ -198,7 +200,25 @@ namespace
             return; // already at the ceiling
 
         st.stacks--;
-        st.boostStart    = boosted - st.current;
+
+        const float add   = boosted - applied;
+        const float carry = add * g_cfg.boostCarryPct;
+
+        // Replenish part of the boost as ordinary glide time: raise the base transition and restart
+        // its fade from there, so the carry decays on the long dive-glide curve, not the short boost
+        // one. This is what leaves the mount still moving after the burst has gone.
+        if (carry > 0.0f)
+        {
+            st.start    = st.current + carry;
+            st.current  = st.start;
+            st.target   = RateFor(st.motion);
+            st.elapsed  = 0;
+            st.duration = ScaledMs(g_cfg.glideMs, st.start - st.target,
+                                   std::fabs(g_cfg.diveSpeed - g_cfg.levelSpeed));
+            st.curve    = Curve::EaseIn;
+        }
+
+        st.boostStart    = add - carry;
         st.boostOffset   = st.boostStart;
         st.boostElapsed  = 0;
         st.boostDuration = g_cfg.boostFadeMs;
@@ -548,6 +568,7 @@ public:
         g_cfg.boostAdd     = sConfigMgr->GetOption<float>("ManaSpeedFlying.BoostAdd", 4.0f);
         g_cfg.boostSpeed   = sConfigMgr->GetOption<float>("ManaSpeedFlying.BoostSpeed", 16.0f);
         g_cfg.boostFadeMs  = sConfigMgr->GetOption<uint32>("ManaSpeedFlying.BoostFadeMs", 4000);
+        g_cfg.boostCarryPct = sConfigMgr->GetOption<float>("ManaSpeedFlying.BoostCarryPct", 0.20f);
         g_cfg.boostStacks  = sConfigMgr->GetOption<int>("ManaSpeedFlying.BoostMaxStacks", 3);
         g_cfg.stackMs      = sConfigMgr->GetOption<uint32>("ManaSpeedFlying.StackIntervalMs", 9000);
         g_cfg.stackDiveMs  = sConfigMgr->GetOption<uint32>("ManaSpeedFlying.StackDiveIntervalMs", 3000);
@@ -558,6 +579,7 @@ public:
         g_cfg.boostAdd     = std::max(g_cfg.boostAdd,     0.0f);
         g_cfg.boostSpeed   = std::max(g_cfg.boostSpeed,   g_cfg.diveSpeed);
         g_cfg.boostStacks  = std::max(0, std::min(g_cfg.boostStacks, 3));
+        g_cfg.boostCarryPct = std::max(0.0f, std::min(g_cfg.boostCarryPct, 1.0f));
         if (!g_cfg.boostFadeMs) g_cfg.boostFadeMs = 1;
         if (!g_cfg.stackMs) g_cfg.stackMs = 1;
         if (!g_cfg.stackDiveMs) g_cfg.stackDiveMs = 1;

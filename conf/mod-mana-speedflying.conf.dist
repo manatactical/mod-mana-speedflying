@@ -160,6 +160,18 @@ ManaSpeedFlying.BoostSpeed = 16.0
 ManaSpeedFlying.BoostFadeMs = 4000
 
 #
+#    ManaSpeedFlying.BoostCarryPct
+#        Description: Fraction (0..1) of a boost's added speed that is folded into the ordinary
+#                     glide instead of the short boost fade. At 0.20, a fifth of every boost is
+#                     replenished as glide time and bleeds off on the long dive-glide curve, so the
+#                     mount still carries speed seconds after the burst is gone. 0 makes the boost a
+#                     pure short burst.
+#        Default:     0.20
+#
+
+ManaSpeedFlying.BoostCarryPct = 0.20
+
+#
 #    ManaSpeedFlying.BoostMaxStacks
 #        Description: Most boost stacks the button may hold (0..3). Stacks build on a timer (see
 #                     StackIntervalMs / StackDiveIntervalMs); each boost spends one and there is no
