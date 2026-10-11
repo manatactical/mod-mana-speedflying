@@ -71,8 +71,7 @@ namespace
         uint32 timeoutMs    = 2500;  // drop the link if no message arrives for this long
         float  boostAdd     = 4.0f;  // 400%: the speed one boost adds back to the glide
         float  boostSpeed   = 16.0f; // 1600%: hard ceiling a boost may lift the speed to
-        uint32 boostFadeMs  = 2000;  // how fast a boost's added speed bleeds back to the state speed
-        uint32 boostCdMs    = 3000;  // cooldown before the next boost
+        uint32 boostFadeMs  = 4000;  // how fast a boost's added speed bleeds back to the state speed
         int    boostStacks  = 3;     // most boost stacks the button can hold
         uint32 stackMs      = 9000;  // ms between boost stacks in normal flight
         uint32 stackDiveMs  = 3000;  // ms between boost stacks while diving
@@ -111,7 +110,13 @@ namespace
         uint32 lastAnnounce = 0;          // ms of the last speed announce, for the slow resend
         int    stacks = 0;                // boost stacks held (to g_cfg.boostStacks)
         uint32 stackAccum = 0;            // ms accrued toward the next boost stack
-        uint32 cooldown = 0;              // ms left before another boost may fire
+        // A boost is an additive offset on the running transition, not a new transition of its own:
+        // the state blend keeps running underneath and the offset fades to nothing, so the speed
+        // lands back on the glide the mount already had instead of snapping to the plain state speed.
+        float  boostStart = 0.0f;         // the offset a boost added, before its fade
+        float  boostOffset = 0.0f;        // the still-decaying part of that offset
+        uint32 boostElapsed = 0;          // ms into the fade
+        uint32 boostDuration = 0;         // ms the fade runs for; 0 = no boost running
     };
 
     std::mutex g_lock;
@@ -176,30 +181,27 @@ namespace
         return Curve::Linear;
     }
 
-    // The button boost: spends a stack, starts the cooldown, and adds BoostAdd to the speed right
-    // now. The added speed is still spent as ordinary glide time, but on the short BoostFadeMs ramp
-    // rather than the long dive glide -- a super boost is a brief reward, not a second dive. Climb
-    // and hover keep their own transition.
+    // The button boost: spends a stack and adds BoostAdd to the speed right now as an offset on top
+    // of whatever blend is running. The offset fades over BoostFadeMs (fast at first, then slow), so
+    // the mount returns to the exact glide it had. There is no cooldown: holding several stacks lets
+    // them be chained, and each one stacks onto the speed still left from the last.
     void ActivateBoost(PlayerState& st)
     {
-        if (!st.eligible || st.stacks <= 0 || st.cooldown > 0)
+        if (!st.eligible || st.stacks <= 0)
             return;
         if (st.motion != Motion::Dive && st.motion != Motion::Level)
             return;
 
-        const float boosted = std::min(g_cfg.boostSpeed, st.current + g_cfg.boostAdd);
-        if (boosted <= st.current)
+        const float applied = st.current + st.boostOffset;
+        const float boosted = std::min(g_cfg.boostSpeed, applied + g_cfg.boostAdd);
+        if (boosted <= applied)
             return; // already at the ceiling
 
         st.stacks--;
-        st.cooldown  = g_cfg.boostCdMs;
-
-        st.current  = boosted;
-        st.start    = boosted;
-        st.target   = RateFor(st.motion);
-        st.elapsed  = 0;
-        st.duration = g_cfg.boostFadeMs;
-        st.curve    = Curve::EaseIn;
+        st.boostStart    = boosted - st.current;
+        st.boostOffset   = st.boostStart;
+        st.boostElapsed  = 0;
+        st.boostDuration = g_cfg.boostFadeMs;
     }
 
     // Records the state a link message named. The first message on a mount snaps the applied rate so
@@ -252,7 +254,7 @@ namespace
     {
         char body[80];
         std::snprintf(body, sizeof(body), "S:%.3g,%.3g,%.3g,%u,%d,%u,%d", g_cfg.levelSpeed * 100.0f,
-                      g_cfg.diveSpeed * 100.0f, g_cfg.boostSpeed * 100.0f, g_cfg.boostCdMs,
+                      g_cfg.diveSpeed * 100.0f, g_cfg.boostSpeed * 100.0f, 0u,
                       g_cfg.boostStacks, g_cfg.boostFadeMs, stacks);
 
         // The client listens for the addon prefix on CHAT_MSG_ADDON, which the client's chat layer only
@@ -346,7 +348,9 @@ public:
         bool   timedOut = false;
         Curve  curve;
         float  current, target, start, lastSent;
-        uint32 elapsed, duration, sendAccum, sinceLink, cooldown, stackAccum;
+        uint32 elapsed, duration, sendAccum, sinceLink, stackAccum;
+        float  boostStart, boostOffset;
+        uint32 boostElapsed, boostDuration;
         Motion motion;
         int    stacks;
         {
@@ -364,10 +368,13 @@ public:
             lastSent  = it->second.lastSent;
             sendAccum = it->second.sendAccum;
             sinceLink = it->second.sinceLink;
-            cooldown   = it->second.cooldown;
             stacks     = it->second.stacks;
             stackAccum = it->second.stackAccum;
             motion     = it->second.motion;
+            boostStart    = it->second.boostStart;
+            boostOffset   = it->second.boostOffset;
+            boostElapsed  = it->second.boostElapsed;
+            boostDuration = it->second.boostDuration;
         }
         const int prevStacks = stacks;
 
@@ -398,14 +405,16 @@ public:
                 it->second.sinceLink = sinceLink;
                 it->second.stacks    = 0;
                 it->second.stackAccum = 0;
-                it->second.cooldown  = 0;
+                it->second.boostStart = 0.0f;
+                it->second.boostOffset = 0.0f;
+                it->second.boostElapsed = 0;
+                it->second.boostDuration = 0;
             }
             return;
         }
 
-        cooldown = (cooldown > p_time) ? cooldown - p_time : 0;
-
-        // Eased transition from `start` to `target` over `duration`.
+        // Eased transition from `start` to `target` over `duration`. This keeps running under a
+        // boost, so the boost is only an offset added on top of it below.
         if (duration == 0)
         {
             current = target;
@@ -449,7 +458,28 @@ public:
         else
             stackAccum = 0;
 
-        const float applied = current;
+        // The boost is an additive offset on top of the running transition, fading to nothing over
+        // BoostFadeMs: fast at first, then slow. Because the underlying transition keeps running, the
+        // speed lands back on exactly the glide the mount had before the boost instead of snapping to
+        // the plain state speed.
+        if (boostDuration)
+        {
+            boostElapsed += p_time;
+            if (boostElapsed >= boostDuration)
+            {
+                boostOffset   = 0.0f;
+                boostElapsed  = 0;
+                boostDuration = 0;
+            }
+            else
+            {
+                const float p    = static_cast<float>(boostElapsed) / static_cast<float>(boostDuration);
+                const float keep = (1.0f - p) * (1.0f - p); // fast at first, then slow
+                boostOffset = boostStart * keep;
+            }
+        }
+
+        const float applied = std::min(g_cfg.boostSpeed, current + boostOffset);
 
         sendAccum += p_time;
         if (sendAccum >= g_cfg.sendMs || current == target)
@@ -473,9 +503,12 @@ public:
                 it->second.lastSent  = lastSent;
                 it->second.sendAccum = sendAccum;
                 it->second.sinceLink = sinceLink;
-                it->second.cooldown  = cooldown;
                 it->second.stacks    = stacks;
                 it->second.stackAccum = stackAccum;
+                it->second.boostStart = boostStart;
+                it->second.boostOffset = boostOffset;
+                it->second.boostElapsed = boostElapsed;
+                it->second.boostDuration = boostDuration;
             }
         }
         // A stack gained while diving is pushed at once, so the client button never lags the count the
@@ -514,8 +547,7 @@ public:
         g_cfg.timeoutMs    = sConfigMgr->GetOption<uint32>("ManaSpeedFlying.TimeoutMs", 2500);
         g_cfg.boostAdd     = sConfigMgr->GetOption<float>("ManaSpeedFlying.BoostAdd", 4.0f);
         g_cfg.boostSpeed   = sConfigMgr->GetOption<float>("ManaSpeedFlying.BoostSpeed", 16.0f);
-        g_cfg.boostFadeMs  = sConfigMgr->GetOption<uint32>("ManaSpeedFlying.BoostFadeMs", 2000);
-        g_cfg.boostCdMs    = sConfigMgr->GetOption<uint32>("ManaSpeedFlying.BoostCooldownMs", 3000);
+        g_cfg.boostFadeMs  = sConfigMgr->GetOption<uint32>("ManaSpeedFlying.BoostFadeMs", 4000);
         g_cfg.boostStacks  = sConfigMgr->GetOption<int>("ManaSpeedFlying.BoostMaxStacks", 3);
         g_cfg.stackMs      = sConfigMgr->GetOption<uint32>("ManaSpeedFlying.StackIntervalMs", 9000);
         g_cfg.stackDiveMs  = sConfigMgr->GetOption<uint32>("ManaSpeedFlying.StackDiveIntervalMs", 3000);

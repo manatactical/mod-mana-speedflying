@@ -149,28 +149,21 @@ ManaSpeedFlying.BoostSpeed = 16.0
 
 #
 #    ManaSpeedFlying.BoostFadeMs
-#        Description: How quickly, in milliseconds, a boost's added speed bleeds back to the state's
-#                     normal speed. The boost is meant to be a brief, rewarding burst, not a second
-#                     dive -- lower this to make the reward snappier. It is the fade of the bonus
-#                     speed only; the ordinary dive glide still uses GlideMs.
-#        Default:     2000
+#        Description: How long, in milliseconds, a boost's added speed takes to bleed back to the
+#                     glide the mount already had. The decay is fast at first and then slow. Because
+#                     the boost is an offset on the running blend, the speed returns to the exact
+#                     glide it had before, not to the plain state speed. Lower it for a snappier
+#                     reward; it is independent of the ordinary dive glide (GlideMs).
+#        Default:     4000
 #
 
-ManaSpeedFlying.BoostFadeMs = 2000
-
-#
-#    ManaSpeedFlying.BoostCooldownMs
-#        Description: Cooldown, in milliseconds, before the next boost may fire. Shown as a swipe on
-#                     the client's boost button.
-#        Default:     3000
-#
-
-ManaSpeedFlying.BoostCooldownMs = 3000
+ManaSpeedFlying.BoostFadeMs = 4000
 
 #
 #    ManaSpeedFlying.BoostMaxStacks
 #        Description: Most boost stacks the button may hold (0..3). Stacks build on a timer (see
-#                     StackIntervalMs / StackDiveIntervalMs); each boost spends one.
+#                     StackIntervalMs / StackDiveIntervalMs); each boost spends one and there is no
+#                     cooldown, so several can be chained at once.
 #        Default:     3
 #
 
