@@ -12,8 +12,10 @@
  *   state   C climb, D dive, H hovering, L level / strafe / backward
  *
  * The server answers with its own configured speeds so the client scales its bar, particles and shake
- * to them:  "WXLMS\tS<levelPct>,<divePct>"  (the same WXLMS prefix; the client reads the last
- * addon message once a second).
+ * to them:  "WXLMS\tS<levelPct>,<divePct>,<boostPct>,<cooldownMs>,<maxStacks>,<boostMs>,<stacks>"  (the
+ * same WXLMS prefix; the client reads the last addon message once a second). The trailing <stacks> is
+ * the server's live boost-stack count, so the client button mirrors the authoritative value instead of
+ * counting speed tiers and drifting; it is re-sent whenever the count changes.
  *
  * The state is applied over a transition whose length and curve depend on where the speed is going:
  * a dive accelerates into DiveSpeed (faster and faster), pulling out to level is a long glide that
@@ -239,17 +241,18 @@ namespace
         st.motion   = m;
     }
 
-    // Publish the configured speeds to the client so its bar, particles, shake and boost button scale to
-    // the values actually in play. Same "WXLMS" prefix the client already sends, body
-    // "S:<levelPct>,<divePct>,<boostPct>,<cooldownMs>,<maxStacks>,<boostMs>"; the client polls its last
-    // addon message once a second and ignores a body it cannot parse. A UI reload on the client drops
-    // the value, which the slow resend covers.
-    void SendSpeedAnnounce(Player* player)
+    // Publish the configured speeds and the live stack count to the client so its bar, particles,
+    // shake and boost button scale to the values actually in play and its stack count cannot drift from
+    // the server's. Same "WXLMS" prefix the client already sends, body
+    // "S:<levelPct>,<divePct>,<boostPct>,<cooldownMs>,<maxStacks>,<boostMs>,<stacks>"; the client polls
+    // its last addon message once a second and ignores a body it cannot parse. A UI reload on the client
+    // drops the value, which the slow resend covers.
+    void SendSpeedAnnounce(Player* player, int stacks)
     {
-        char body[64];
-        std::snprintf(body, sizeof(body), "S:%.3g,%.3g,%.3g,%u,%d,%u", g_cfg.levelSpeed * 100.0f,
+        char body[80];
+        std::snprintf(body, sizeof(body), "S:%.3g,%.3g,%.3g,%u,%d,%u,%d", g_cfg.levelSpeed * 100.0f,
                       g_cfg.diveSpeed * 100.0f, g_cfg.boostSpeed * 100.0f, g_cfg.boostCdMs,
-                      g_cfg.boostStacks, g_cfg.boostMs);
+                      g_cfg.boostStacks, g_cfg.boostMs, stacks);
 
         // The client listens for the addon prefix on CHAT_MSG_ADDON, which the client's chat layer only
         // parses out of a LANG_ADDON chat packet -- so the prefix rides at the front, exactly as a
@@ -281,6 +284,7 @@ public:
         const char state  = msg[7];
 
         bool announce = false;
+        int  stacksOut = 0;
         {
             std::lock_guard<std::mutex> guard(g_lock);
             PlayerState& st = g_states[player->GetGUID().GetRawValue()];
@@ -308,6 +312,10 @@ public:
             {
                 st.sinceLink = 0;
                 ActivateBoost(st);
+                // Answer every attempt with the authoritative count, spent or rejected, so a click the
+                // server ignored cannot leave the client button one stack off until the slow resend.
+                st.lastAnnounce = now;
+                announce        = true;
             }
             else
             {
@@ -319,10 +327,11 @@ public:
                     default:  SetTarget(st, Motion::Level); break;
                 }
             }
+            stacksOut = st.stacks;
         }
 
         if (announce)
-            SendSpeedAnnounce(player);
+            SendSpeedAnnounce(player, stacksOut);
     }
 
     void OnPlayerUpdate(Player* player, uint32 p_time) override
@@ -358,6 +367,7 @@ public:
             stacks    = it->second.stacks;
             boostLock = it->second.boostLock;
         }
+        const int prevStacks = stacks;
 
         if (eligible && g_cfg.timeoutMs)
         {
@@ -452,19 +462,27 @@ public:
             lastSent = applied;
         }
 
-        std::lock_guard<std::mutex> guard(g_lock);
-        auto it = g_states.find(guid);
-        if (it != g_states.end())
+        bool stackGained = false;
         {
-            it->second.current   = current;
-            it->second.elapsed   = elapsed;
-            it->second.lastSent  = lastSent;
-            it->second.sendAccum = sendAccum;
-            it->second.sinceLink = sinceLink;
-            it->second.cooldown  = cooldown;
-            it->second.stacks    = stacks;
-            it->second.boostLock = boostLock;
+            std::lock_guard<std::mutex> guard(g_lock);
+            auto it = g_states.find(guid);
+            if (it != g_states.end())
+            {
+                stackGained          = stacks != prevStacks;
+                it->second.current   = current;
+                it->second.elapsed   = elapsed;
+                it->second.lastSent  = lastSent;
+                it->second.sendAccum = sendAccum;
+                it->second.sinceLink = sinceLink;
+                it->second.cooldown  = cooldown;
+                it->second.stacks    = stacks;
+                it->second.boostLock = boostLock;
+            }
         }
+        // A stack gained while diving is pushed at once, so the client button never lags the count the
+        // next boost will actually spend.
+        if (stackGained)
+            SendSpeedAnnounce(player, stacks);
     }
 
     void OnPlayerLogout(Player* player) override
