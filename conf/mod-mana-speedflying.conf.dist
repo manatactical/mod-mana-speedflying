@@ -130,8 +130,8 @@ ManaSpeedFlying.TimeoutMs = 2500
 #    ManaSpeedFlying.BoostAdd
 #        Description: Speed the button boost adds to the glide, as a multiplier of base run speed.
 #                     4.0 = 400%. It is added to the mount's current speed, so a boost can carry a
-#                     glide past the dive ceiling, and the added speed is then spent as ordinary
-#                     glide time instead of a fixed burst. The total is capped by BoostSpeed.
+#                     glide past the dive ceiling; the added speed then bleeds back to the state's
+#                     normal speed over BoostFadeMs. The total is capped by BoostSpeed.
 #        Default:     4.0
 #
 
@@ -148,14 +148,15 @@ ManaSpeedFlying.BoostAdd = 4.0
 ManaSpeedFlying.BoostSpeed = 16.0
 
 #
-#    ManaSpeedFlying.BoostMs
-#        Description: How long, in milliseconds, the client hides the stack gain after a boost, so
-#                     the boost's own extra speed cannot refill the stack it just spent. The extra
-#                     speed itself is not timed: it bleeds off through the ordinary glide.
-#        Default:     4000
+#    ManaSpeedFlying.BoostFadeMs
+#        Description: How quickly, in milliseconds, a boost's added speed bleeds back to the state's
+#                     normal speed. The boost is meant to be a brief, rewarding burst, not a second
+#                     dive -- lower this to make the reward snappier. It is the fade of the bonus
+#                     speed only; the ordinary dive glide still uses GlideMs.
+#        Default:     2000
 #
 
-ManaSpeedFlying.BoostMs = 4000
+ManaSpeedFlying.BoostFadeMs = 2000
 
 #
 #    ManaSpeedFlying.BoostCooldownMs
@@ -168,12 +169,28 @@ ManaSpeedFlying.BoostCooldownMs = 3000
 
 #
 #    ManaSpeedFlying.BoostMaxStacks
-#        Description: Most boost stacks the button may hold (0..3). A dive builds them by speed, not
-#                     flight state, so a dive that peaks as the mount pulls out still counts: 50% of
-#                     the way from LevelSpeed to DiveSpeed grants one, 80% two and the full dive
-#                     ceiling three. Each boost spends one stack and locks gains until the speed has
-#                     fallen back below the first tier.
+#        Description: Most boost stacks the button may hold (0..3). Stacks build on a timer (see
+#                     StackIntervalMs / StackDiveIntervalMs); each boost spends one.
 #        Default:     3
 #
 
 ManaSpeedFlying.BoostMaxStacks = 3
+
+#
+#    ManaSpeedFlying.StackIntervalMs
+#        Description: Time, in milliseconds, between boost stacks in normal flight. A stack is
+#                     granted on this cadence while the mount is link-eligible, up to BoostMaxStacks.
+#        Default:     9000
+#
+
+ManaSpeedFlying.StackIntervalMs = 9000
+
+#
+#    ManaSpeedFlying.StackDiveIntervalMs
+#        Description: Time, in milliseconds, between boost stacks while diving -- the faster cadence
+#                     that makes a dive worth doing. A stack is granted on this cadence while the
+#                     mount is link-eligible, up to BoostMaxStacks.
+#        Default:     3000
+#
+
+ManaSpeedFlying.StackDiveIntervalMs = 3000

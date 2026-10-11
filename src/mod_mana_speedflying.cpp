@@ -12,7 +12,7 @@
  *   state   C climb, D dive, H hovering, L level / strafe / backward
  *
  * The server answers with its own configured speeds so the client scales its bar, particles and shake
- * to them:  "WXLMS\tS<levelPct>,<divePct>,<boostPct>,<cooldownMs>,<maxStacks>,<boostMs>,<stacks>"  (the
+ * to them:  "WXLMS\tS<levelPct>,<divePct>,<boostPct>,<cooldownMs>,<maxStacks>,<boostFadeMs>,<stacks>"  (the
  * same WXLMS prefix; the client reads the last addon message once a second). The trailing <stacks> is
  * the server's live boost-stack count, so the client button mirrors the authoritative value instead of
  * counting speed tiers and drifting; it is re-sent whenever the count changes.
@@ -71,9 +71,11 @@ namespace
         uint32 timeoutMs    = 2500;  // drop the link if no message arrives for this long
         float  boostAdd     = 4.0f;  // 400%: the speed one boost adds back to the glide
         float  boostSpeed   = 16.0f; // 1600%: hard ceiling a boost may lift the speed to
-        uint32 boostMs      = 4000;  // how long the client hides stack gains after a boost
+        uint32 boostFadeMs  = 2000;  // how fast a boost's added speed bleeds back to the state speed
         uint32 boostCdMs    = 3000;  // cooldown before the next boost
         int    boostStacks  = 3;     // most boost stacks the button can hold
+        uint32 stackMs      = 9000;  // ms between boost stacks in normal flight
+        uint32 stackDiveMs  = 3000;  // ms between boost stacks while diving
     };
 
     Config g_cfg;
@@ -108,7 +110,7 @@ namespace
         bool   announced = false;         // the client has been told the current speeds
         uint32 lastAnnounce = 0;          // ms of the last speed announce, for the slow resend
         int    stacks = 0;                // boost stacks held (to g_cfg.boostStacks)
-        bool   boostLock = false;         // a boost was spent; no stack gain until the speed falls back
+        uint32 stackAccum = 0;            // ms accrued toward the next boost stack
         uint32 cooldown = 0;              // ms left before another boost may fire
     };
 
@@ -129,9 +131,10 @@ namespace
     uint32 DurationFor(const PlayerState& st, Motion next)
     {
         const float nextRate = RateFor(next);
-        // Leaving a hover (a parked mount) is a deliberately tiny accel/decel zone whatever state
-        // it heads into, so taking off responds at once instead of ramping from a standstill.
-        if (st.motion == Motion::Hover)
+        // A hover (a parked mount) is a deliberately tiny accel/decel zone in both directions: the
+        // speed drops to the parked level as the mount stops and comes straight back out when it
+        // moves, so parking cannot bank a residual dive glide to spend on the next take-off.
+        if (st.motion == Motion::Hover || next == Motion::Hover)
             return g_cfg.hoverMs;
         if (next == Motion::Dive)
             return g_cfg.diveMs;
@@ -174,9 +177,9 @@ namespace
     }
 
     // The button boost: spends a stack, starts the cooldown, and adds BoostAdd to the speed right
-    // now. The added speed is handed to the ordinary glide, so it is spent as glide time instead of
-    // a fixed burst and can carry a glide past the dive ceiling. Climb and hover keep their own
-    // transition.
+    // now. The added speed is still spent as ordinary glide time, but on the short BoostFadeMs ramp
+    // rather than the long dive glide -- a super boost is a brief reward, not a second dive. Climb
+    // and hover keep their own transition.
     void ActivateBoost(PlayerState& st)
     {
         if (!st.eligible || st.stacks <= 0 || st.cooldown > 0)
@@ -189,15 +192,13 @@ namespace
             return; // already at the ceiling
 
         st.stacks--;
-        st.boostLock = true;
         st.cooldown  = g_cfg.boostCdMs;
 
         st.current  = boosted;
         st.start    = boosted;
         st.target   = RateFor(st.motion);
         st.elapsed  = 0;
-        st.duration = ScaledMs(g_cfg.glideMs, boosted - st.target,
-                               std::fabs(g_cfg.diveSpeed - g_cfg.levelSpeed));
+        st.duration = g_cfg.boostFadeMs;
         st.curve    = Curve::EaseIn;
     }
 
@@ -244,7 +245,7 @@ namespace
     // Publish the configured speeds and the live stack count to the client so its bar, particles,
     // shake and boost button scale to the values actually in play and its stack count cannot drift from
     // the server's. Same "WXLMS" prefix the client already sends, body
-    // "S:<levelPct>,<divePct>,<boostPct>,<cooldownMs>,<maxStacks>,<boostMs>,<stacks>"; the client polls
+    // "S:<levelPct>,<divePct>,<boostPct>,<cooldownMs>,<maxStacks>,<boostFadeMs>,<stacks>"; the client polls
     // its last addon message once a second and ignores a body it cannot parse. A UI reload on the client
     // drops the value, which the slow resend covers.
     void SendSpeedAnnounce(Player* player, int stacks)
@@ -252,7 +253,7 @@ namespace
         char body[80];
         std::snprintf(body, sizeof(body), "S:%.3g,%.3g,%.3g,%u,%d,%u,%d", g_cfg.levelSpeed * 100.0f,
                       g_cfg.diveSpeed * 100.0f, g_cfg.boostSpeed * 100.0f, g_cfg.boostCdMs,
-                      g_cfg.boostStacks, g_cfg.boostMs, stacks);
+                      g_cfg.boostStacks, g_cfg.boostFadeMs, stacks);
 
         // The client listens for the addon prefix on CHAT_MSG_ADDON, which the client's chat layer only
         // parses out of a LANG_ADDON chat packet -- so the prefix rides at the front, exactly as a
@@ -345,9 +346,9 @@ public:
         bool   timedOut = false;
         Curve  curve;
         float  current, target, start, lastSent;
-        uint32 elapsed, duration, sendAccum, sinceLink, cooldown;
+        uint32 elapsed, duration, sendAccum, sinceLink, cooldown, stackAccum;
+        Motion motion;
         int    stacks;
-        bool   boostLock;
         {
             std::lock_guard<std::mutex> guard(g_lock);
             auto it = g_states.find(guid);
@@ -363,9 +364,10 @@ public:
             lastSent  = it->second.lastSent;
             sendAccum = it->second.sendAccum;
             sinceLink = it->second.sinceLink;
-            cooldown  = it->second.cooldown;
-            stacks    = it->second.stacks;
-            boostLock = it->second.boostLock;
+            cooldown   = it->second.cooldown;
+            stacks     = it->second.stacks;
+            stackAccum = it->second.stackAccum;
+            motion     = it->second.motion;
         }
         const int prevStacks = stacks;
 
@@ -395,7 +397,7 @@ public:
                 it->second.sendAccum = 0;
                 it->second.sinceLink = sinceLink;
                 it->second.stacks    = 0;
-                it->second.boostLock = false;
+                it->second.stackAccum = 0;
                 it->second.cooldown  = 0;
             }
             return;
@@ -428,27 +430,24 @@ public:
             }
         }
 
-        // Diving builds boost stacks, ratcheted to the deepest tier reached: 50% of the dive bonus is
-        // one, 80% two, and the full dive ceiling three (capped at the configured stock). It reads the
-        // speed, not the flight state, so a dive that peaks as the mount pulls out still counts. A
-        // spent boost locks gains until the speed has fallen back below the first tier, so the boost's
-        // own over-ceiling decay cannot refill the stack it just spent.
-        const float tierspan = g_cfg.diveSpeed - g_cfg.levelSpeed;
-        if (tierspan > 0.0f)
+        // Boost stacks build on a timer: one every StackIntervalMs, or every StackDiveIntervalMs
+        // while diving, capped at the configured stock. The timer only runs while the mount is
+        // link-eligible, so a grounded or unlinked mount earns nothing.
+        if (stacks < g_cfg.boostStacks)
         {
-            const float t = (current - g_cfg.levelSpeed) / tierspan;
-            if (boostLock && t < 0.5f)
-                boostLock = false;
-            if (!boostLock)
+            const uint32 interval = motion == Motion::Dive ? g_cfg.stackDiveMs : g_cfg.stackMs;
+            if (interval)
             {
-                const int tier = t >= 1.0f ? g_cfg.boostStacks
-                               : t >= 0.8f ? std::min(2, g_cfg.boostStacks)
-                               : t >= 0.5f ? std::min(1, g_cfg.boostStacks)
-                                           : 0;
-                if (tier > stacks)
-                    stacks = tier;
+                stackAccum += p_time;
+                while (stackAccum >= interval && stacks < g_cfg.boostStacks)
+                {
+                    stackAccum -= interval;
+                    ++stacks;
+                }
             }
         }
+        else
+            stackAccum = 0;
 
         const float applied = current;
 
@@ -476,7 +475,7 @@ public:
                 it->second.sinceLink = sinceLink;
                 it->second.cooldown  = cooldown;
                 it->second.stacks    = stacks;
-                it->second.boostLock = boostLock;
+                it->second.stackAccum = stackAccum;
             }
         }
         // A stack gained while diving is pushed at once, so the client button never lags the count the
@@ -515,9 +514,11 @@ public:
         g_cfg.timeoutMs    = sConfigMgr->GetOption<uint32>("ManaSpeedFlying.TimeoutMs", 2500);
         g_cfg.boostAdd     = sConfigMgr->GetOption<float>("ManaSpeedFlying.BoostAdd", 4.0f);
         g_cfg.boostSpeed   = sConfigMgr->GetOption<float>("ManaSpeedFlying.BoostSpeed", 16.0f);
-        g_cfg.boostMs      = sConfigMgr->GetOption<uint32>("ManaSpeedFlying.BoostMs", 4000);
+        g_cfg.boostFadeMs  = sConfigMgr->GetOption<uint32>("ManaSpeedFlying.BoostFadeMs", 2000);
         g_cfg.boostCdMs    = sConfigMgr->GetOption<uint32>("ManaSpeedFlying.BoostCooldownMs", 3000);
         g_cfg.boostStacks  = sConfigMgr->GetOption<int>("ManaSpeedFlying.BoostMaxStacks", 3);
+        g_cfg.stackMs      = sConfigMgr->GetOption<uint32>("ManaSpeedFlying.StackIntervalMs", 9000);
+        g_cfg.stackDiveMs  = sConfigMgr->GetOption<uint32>("ManaSpeedFlying.StackDiveIntervalMs", 3000);
 
         g_cfg.climbSpeed   = std::max(g_cfg.climbSpeed,   0.1f);
         g_cfg.levelSpeed   = std::max(g_cfg.levelSpeed,   0.1f);
@@ -525,6 +526,9 @@ public:
         g_cfg.boostAdd     = std::max(g_cfg.boostAdd,     0.0f);
         g_cfg.boostSpeed   = std::max(g_cfg.boostSpeed,   g_cfg.diveSpeed);
         g_cfg.boostStacks  = std::max(0, std::min(g_cfg.boostStacks, 3));
+        if (!g_cfg.boostFadeMs) g_cfg.boostFadeMs = 1;
+        if (!g_cfg.stackMs) g_cfg.stackMs = 1;
+        if (!g_cfg.stackDiveMs) g_cfg.stackDiveMs = 1;
         if (!g_cfg.sendMs) g_cfg.sendMs = 1;
 
         // A config change drops every link; the client's next heartbeat picks it back up.
