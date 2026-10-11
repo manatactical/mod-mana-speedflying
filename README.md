@@ -40,9 +40,9 @@ WXLMS<TAB><advfly:0|1><state:L|C|D|H|B>
   and druid flight forms, with no server-side mount list. A `0` message tells the server to restore
   the mount's own speed and stand down.
 - `state` is `C` climb, `D` dive, `H` hovering, `L` level / strafe / backward, and `B` the
-  client's button boost. `B` spends a stack and lifts the mount toward `BoostSpeed` for `BoostMs`:
-  a dive climbs past `DiveSpeed`, a level glide is replenished and spends the extra speed as glide
-  time. A climb or hover keeps its own transition.
+  client's button boost. `B` spends a stack and adds `BoostAdd` to the mount's current speed: a
+  dive or a level glide is carried past the dive ceiling, and the added speed is then spent as
+  ordinary glide time. A climb or hover keeps its own transition.
 
 The client sends on every state change, announces the mount's capability when a mount is loaded, and
 heartbeats about once a second. On the server the message is picked up by
@@ -94,8 +94,9 @@ ManaSpeedFlying.ClimbDecelMs = 3500   ; dive -> climb: hold the speed, then brak
 ManaSpeedFlying.HoverMs      = 500    ; fixed accel/decel zone leaving a hover
 ManaSpeedFlying.SendMs       = 150
 ManaSpeedFlying.TimeoutMs    = 2500   ; restore the mount's own speed if the link goes quiet
-ManaSpeedFlying.BoostSpeed   = 16.0   ; 1600%: button-boost ceiling (>= DiveSpeed)
-ManaSpeedFlying.BoostMs      = 4000   ; how long one boost lasts
+ManaSpeedFlying.BoostAdd     = 4.0    ; 400%: speed one boost adds to the glide
+ManaSpeedFlying.BoostSpeed   = 16.0   ; 1600%: hard boost ceiling (>= DiveSpeed)
+ManaSpeedFlying.BoostMs      = 4000   ; client hides stack gains this long after a boost
 ManaSpeedFlying.BoostCooldownMs = 3000 ; cooldown between boosts
 ManaSpeedFlying.BoostMaxStacks  = 3    ; 0..3, built by diving
 ```
@@ -114,10 +115,12 @@ ManaSpeedFlying.BoostMaxStacks  = 3    ; 0..3, built by diving
 A dive builds up to `BoostMaxStacks` stacks, measured from the speed rather than the flight state so a
 dive that peaks as the mount pulls out still counts: 50% of the way from `LevelSpeed` to `DiveSpeed`
 grants one, 80% grants two and the full dive ceiling grants three. Each press of the client's boost
-button (can be used while diving or gliding level) spends one stack and lifts the mount toward
-`BoostSpeed` for `BoostMs`; `BoostCooldownMs` gates the next press. A spent boost locks gains until
-the speed has fallen back below the first tier, so the boost's own over-ceiling decay cannot refill
-the stack it just spent.
+button (can be used while diving or gliding level) spends one stack and adds `BoostAdd` (400% by
+default) to the mount's current speed, up to the `BoostSpeed` ceiling. The added speed is handed to
+the ordinary glide, so it is spent as glide time -- a boost can carry a dive or a level glide above
+the `DiveSpeed` ceiling -- and a boost on a deep glide is felt for many seconds. `BoostCooldownMs`
+gates the next press. A spent boost locks gains until the speed has fallen back below the first
+tier, so the boost's own over-ceiling decay cannot refill the stack it just spent.
 
 ## Notes
 

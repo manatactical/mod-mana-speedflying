@@ -67,8 +67,9 @@ namespace
         uint32 hoverMs      = 500;   // short accel/decel zone leaving a hover
         uint32 sendMs       = 150;   // how often the blended speed may reach the client
         uint32 timeoutMs    = 2500;  // drop the link if no message arrives for this long
-        float  boostSpeed   = 16.0f; // 1600%: the button-boost ceiling, above DiveSpeed
-        uint32 boostMs      = 4000;  // how long one boost lasts
+        float  boostAdd     = 4.0f;  // 400%: the speed one boost adds back to the glide
+        float  boostSpeed   = 16.0f; // 1600%: hard ceiling a boost may lift the speed to
+        uint32 boostMs      = 4000;  // how long the client hides stack gains after a boost
         uint32 boostCdMs    = 3000;  // cooldown before the next boost
         int    boostStacks  = 3;     // most boost stacks the button can hold
     };
@@ -107,7 +108,6 @@ namespace
         int    stacks = 0;                // boost stacks held (to g_cfg.boostStacks)
         bool   boostLock = false;         // a boost was spent; no stack gain until the speed falls back
         uint32 cooldown = 0;              // ms left before another boost may fire
-        uint32 boostLeft = 0;             // ms left of the active boost (0 = none)
     };
 
     std::mutex g_lock;
@@ -123,19 +123,10 @@ namespace
         return static_cast<uint32>(static_cast<float>(baseMs) * dist / reference);
     }
 
-    // The rate a state calls for, except that an active boost lifts a dive or a level glide to the
-    // boost ceiling. Climb and hover keep their own rate -- a boost there would fight the state.
-    float TargetRate(const PlayerState& st, Motion m)
-    {
-        if ((m == Motion::Dive || m == Motion::Level) && st.boostLeft > 0)
-            return g_cfg.boostSpeed;
-        return RateFor(m);
-    }
-
     // Transition length for entering `next` from the state we are in.
     uint32 DurationFor(const PlayerState& st, Motion next)
     {
-        const float nextRate = TargetRate(st, next);
+        const float nextRate = RateFor(next);
         // Leaving a hover (a parked mount) is a deliberately tiny accel/decel zone whatever state
         // it heads into, so taking off responds at once instead of ramping from a standstill.
         if (st.motion == Motion::Hover)
@@ -180,25 +171,32 @@ namespace
         return Curve::Linear;
     }
 
-    // The button boost: spends a stack, starts the cooldown, and lifts the mount to the boost
-    // ceiling for BoostMs. A dive climbs past the dive ceiling; a level glide is replenished so the
-    // extra speed is spent as glide time. Climb and hover keep their own transition.
+    // The button boost: spends a stack, starts the cooldown, and adds BoostAdd to the speed right
+    // now. The added speed is handed to the ordinary glide, so it is spent as glide time instead of
+    // a fixed burst and can carry a glide past the dive ceiling. Climb and hover keep their own
+    // transition.
     void ActivateBoost(PlayerState& st)
     {
         if (!st.eligible || st.stacks <= 0 || st.cooldown > 0)
             return;
+        if (st.motion != Motion::Dive && st.motion != Motion::Level)
+            return;
+
+        const float boosted = std::min(g_cfg.boostSpeed, st.current + g_cfg.boostAdd);
+        if (boosted <= st.current)
+            return; // already at the ceiling
+
         st.stacks--;
         st.boostLock = true;
         st.cooldown  = g_cfg.boostCdMs;
-        st.boostLeft = g_cfg.boostMs;
-        if (st.motion == Motion::Dive || st.motion == Motion::Level)
-        {
-            st.start    = st.current;
-            st.target   = g_cfg.boostSpeed;
-            st.elapsed  = 0;
-            st.duration = g_cfg.diveMs;
-            st.curve    = Curve::Dive;
-        }
+
+        st.current  = boosted;
+        st.start    = boosted;
+        st.target   = RateFor(st.motion);
+        st.elapsed  = 0;
+        st.duration = ScaledMs(g_cfg.glideMs, boosted - st.target,
+                               std::fabs(g_cfg.diveSpeed - g_cfg.levelSpeed));
+        st.curve    = Curve::EaseIn;
     }
 
     // Records the state a link message named. The first message on a mount snaps the applied rate so
@@ -211,7 +209,7 @@ namespace
         {
             st.eligible  = true;
             st.motion    = m;
-            st.current   = TargetRate(st, m);
+            st.current   = RateFor(m);
             st.start     = st.current;
             st.target    = st.current;
             st.elapsed   = 0;
@@ -225,7 +223,7 @@ namespace
 
         if (m == st.motion)
         {
-            st.target = TargetRate(st, m); // heartbeat: keep the running transition going
+            st.target = RateFor(m); // heartbeat: keep the running transition going
             return;
         }
 
@@ -234,7 +232,7 @@ namespace
         if (m == Motion::Climb)
             st.fromDive = (prev == Motion::Dive);
         st.start    = st.current;
-        st.target   = TargetRate(st, m);
+        st.target   = RateFor(m);
         st.elapsed  = 0;
         st.duration = DurationFor(st, m);
         st.curve    = CurveFor(st, m);
@@ -337,9 +335,8 @@ public:
         bool   eligible;
         bool   timedOut = false;
         Curve  curve;
-        Motion motion;
         float  current, target, start, lastSent;
-        uint32 elapsed, duration, sendAccum, sinceLink, cooldown, boostLeft;
+        uint32 elapsed, duration, sendAccum, sinceLink, cooldown;
         int    stacks;
         bool   boostLock;
         {
@@ -348,7 +345,6 @@ public:
             if (it == g_states.end())
                 return;
             eligible  = it->second.eligible;
-            motion    = it->second.motion;
             current   = it->second.current;
             target    = it->second.target;
             start     = it->second.start;
@@ -359,7 +355,6 @@ public:
             sendAccum = it->second.sendAccum;
             sinceLink = it->second.sinceLink;
             cooldown  = it->second.cooldown;
-            boostLeft = it->second.boostLeft;
             stacks    = it->second.stacks;
             boostLock = it->second.boostLock;
         }
@@ -392,24 +387,11 @@ public:
                 it->second.stacks    = 0;
                 it->second.boostLock = false;
                 it->second.cooldown  = 0;
-                it->second.boostLeft = 0;
             }
             return;
         }
 
-        // Boost timers. When the boost window closes, settle back to the state's own speed from
-        // wherever the boost got to. Works for both the dive and the replenished level glide.
-        cooldown  = (cooldown  > p_time) ? cooldown  - p_time : 0;
-        const bool boostWasActive = boostLeft > 0;
-        boostLeft = (boostLeft > p_time) ? boostLeft - p_time : 0;
-        if (boostWasActive && boostLeft == 0 && (motion == Motion::Dive || motion == Motion::Level))
-        {
-            start    = current;
-            target   = RateFor(motion);
-            elapsed  = 0;
-            duration = std::max<uint32>(1, g_cfg.blendMs / 2);
-            curve    = Curve::EaseIn;
-        }
+        cooldown = (cooldown > p_time) ? cooldown - p_time : 0;
 
         // Eased transition from `start` to `target` over `duration`.
         if (duration == 0)
@@ -480,7 +462,6 @@ public:
             it->second.sendAccum = sendAccum;
             it->second.sinceLink = sinceLink;
             it->second.cooldown  = cooldown;
-            it->second.boostLeft = boostLeft;
             it->second.stacks    = stacks;
             it->second.boostLock = boostLock;
         }
@@ -514,6 +495,7 @@ public:
         g_cfg.hoverMs      = sConfigMgr->GetOption<uint32>("ManaSpeedFlying.HoverMs", 500);
         g_cfg.sendMs       = sConfigMgr->GetOption<uint32>("ManaSpeedFlying.SendMs", 150);
         g_cfg.timeoutMs    = sConfigMgr->GetOption<uint32>("ManaSpeedFlying.TimeoutMs", 2500);
+        g_cfg.boostAdd     = sConfigMgr->GetOption<float>("ManaSpeedFlying.BoostAdd", 4.0f);
         g_cfg.boostSpeed   = sConfigMgr->GetOption<float>("ManaSpeedFlying.BoostSpeed", 16.0f);
         g_cfg.boostMs      = sConfigMgr->GetOption<uint32>("ManaSpeedFlying.BoostMs", 4000);
         g_cfg.boostCdMs    = sConfigMgr->GetOption<uint32>("ManaSpeedFlying.BoostCooldownMs", 3000);
@@ -522,6 +504,7 @@ public:
         g_cfg.climbSpeed   = std::max(g_cfg.climbSpeed,   0.1f);
         g_cfg.levelSpeed   = std::max(g_cfg.levelSpeed,   0.1f);
         g_cfg.diveSpeed    = std::max(g_cfg.diveSpeed,    0.1f);
+        g_cfg.boostAdd     = std::max(g_cfg.boostAdd,     0.0f);
         g_cfg.boostSpeed   = std::max(g_cfg.boostSpeed,   g_cfg.diveSpeed);
         g_cfg.boostStacks  = std::max(0, std::min(g_cfg.boostStacks, 3));
         if (!g_cfg.sendMs) g_cfg.sendMs = 1;
