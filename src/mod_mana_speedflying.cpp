@@ -272,6 +272,21 @@ namespace
         const Motion prev = st.motion;
         if (m == Motion::Climb)
             st.fromDive = (prev == Motion::Dive);
+
+        // Leveling out of a climb: a boost spent climbing was never folded into a glide (a climb
+        // is not one), so its still-fading burst had nothing to land on but the short fade and the
+        // momentum was gone in a few seconds. Fold the whole remaining offset into the base
+        // transition now, so it bleeds on the long EaseIn glide instead of the boost curve. The
+        // applied speed is continuous: the base simply starts where `current + boostOffset` was.
+        if (prev == Motion::Climb && m == Motion::Level && st.boostOffset > 0.0f)
+        {
+            st.current    = std::min(g_cfg.boostSpeed, st.current + st.boostOffset);
+            st.boostStart  = 0.0f;
+            st.boostOffset = 0.0f;
+            st.boostElapsed  = 0;
+            st.boostDuration = 0;
+        }
+
         st.start    = st.current;
         st.target   = RateFor(m);
         st.elapsed  = 0;

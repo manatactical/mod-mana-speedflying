@@ -165,8 +165,11 @@ ManaSpeedFlying.BoostFadeMs = 4000
 #                     glide instead of the short boost fade. At 0.20, a fifth of every boost is
 #                     replenished as glide time and bleeds off on the long dive-glide curve, so the
 #                     mount still carries speed seconds after the burst is gone. 0 makes the boost a
-#                     pure short burst. A boost spent while climbing never folds -- there is no glide
-#                     to fold into -- so it is always a pure burst that settles back to ClimbSpeed.
+#                     pure short burst. A boost spent while climbing never folds *during* the climb --
+#                     there is no glide to fold into -- so it is a pure burst that settles back to
+#                     ClimbSpeed. On leveling out of that climb the still-fading burst is folded into
+#                     the level glide, so the built-up speed bleeds on the long GlideMs curve rather
+#                     than the short boost fade.
 #        Default:     0.20
 #
 
