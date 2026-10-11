@@ -41,8 +41,8 @@ WXLMS<TAB><advfly:0|1><state:L|C|D|H|B>
   the mount's own speed and stand down.
 - `state` is `C` climb, `D` dive, `H` hovering, `L` level / strafe / backward, and `B` the
   client's button boost. `B` spends a stack and adds `BoostAdd` to the mount's current speed: a
-  dive or a level glide is carried past the dive ceiling, and the added speed is then spent as
-  ordinary glide time. A climb or hover keeps its own transition.
+  burst that fades over `BoostFadeMs`, plus a slice (`BoostCarryPct`) folded into the running
+  glide so the speed is still carried seconds later. A climb or hover keeps its own transition.
 
 The client sends on every state change, announces the mount's capability when a mount is loaded, and
 heartbeats about once a second. On the server the message is picked up by
@@ -56,11 +56,13 @@ it has to know what that speed is. On the same `WXLMS` prefix the server replies
 values:
 
 ```
-WXLMS<TAB>S<levelPct>,<divePct>          e.g. WXLMS\tS280,800
+WXLMS<TAB>S:<levelPct>,<divePct>,<boostPct>,<cooldownMs>,<maxStacks>,<boostFadeMs>,<stacks>,<stackMs>,<stackDiveMs>
+                                       e.g. WXLMS\tS:280,800,1600,0,3,4000,2,9000,3000
 ```
 
-The client reads the last addon message once a second and uses those two numbers as the empty and
-full ends of every speed effect. The reply goes out on the first link message and again every few
+The client reads the last addon message once a second and uses `levelPct`/`divePct` as the empty and
+full ends of every speed effect, with `boostPct` as the boost ceiling and the two stack intervals as
+the recharge cadence. The reply goes out on the first link message and again every few
 seconds (which also recovers a client UI reload), so changing `ManaSpeedFlying.DiveSpeed` on the
 server is enough -- no matching edit in `wxl-mount-anim.ini` is needed. If the module is not
 installed, the client falls back to its own `GlideSpeedPct` / `MaxSpeedPct` defaults.
@@ -96,9 +98,11 @@ ManaSpeedFlying.SendMs       = 150
 ManaSpeedFlying.TimeoutMs    = 2500   ; restore the mount's own speed if the link goes quiet
 ManaSpeedFlying.BoostAdd     = 4.0    ; 400%: speed one boost adds to the glide
 ManaSpeedFlying.BoostSpeed   = 16.0   ; 1600%: hard boost ceiling (>= DiveSpeed)
-ManaSpeedFlying.BoostMs      = 4000   ; client hides stack gains this long after a boost
-ManaSpeedFlying.BoostCooldownMs = 3000 ; cooldown between boosts
-ManaSpeedFlying.BoostMaxStacks  = 3    ; 0..3, built by diving
+ManaSpeedFlying.BoostFadeMs  = 4000   ; how fast the burst bleeds back to the state speed
+ManaSpeedFlying.BoostCarryPct = 0.20  ; fraction of the boost folded into the glide
+ManaSpeedFlying.BoostMaxStacks  = 3   ; 0..3, recharged on a timer
+ManaSpeedFlying.StackIntervalMs     = 9000 ; normal-flight stack recharge
+ManaSpeedFlying.StackDiveIntervalMs = 3000 ; diving stack recharge
 ```
 
 - **BlendMs** is the time for the *whole* climb-to-dive span. The rate is linear, so a smaller
@@ -112,15 +116,15 @@ ManaSpeedFlying.BoostMaxStacks  = 3    ; 0..3, built by diving
 
 ### The button boost
 
-A dive builds up to `BoostMaxStacks` stacks, measured from the speed rather than the flight state so a
-dive that peaks as the mount pulls out still counts: 50% of the way from `LevelSpeed` to `DiveSpeed`
-grants one, 80% grants two and the full dive ceiling grants three. Each press of the client's boost
-button (can be used while diving or gliding level) spends one stack and adds `BoostAdd` (400% by
-default) to the mount's current speed, up to the `BoostSpeed` ceiling. The added speed is handed to
-the ordinary glide, so it is spent as glide time -- a boost can carry a dive or a level glide above
-the `DiveSpeed` ceiling -- and a boost on a deep glide is felt for many seconds. `BoostCooldownMs`
-gates the next press. A spent boost locks gains until the speed has fallen back below the first
-tier, so the boost's own over-ceiling decay cannot refill the stack it just spent.
+Boost stacks recharge on a timer: one every `StackIntervalMs` (9 s) in normal flight, or every
+`StackDiveIntervalMs` (3 s) while diving, up to `BoostMaxStacks`. The timer only runs while the mount
+is link-eligible (flying, AdvFly mount), so a grounded mount earns nothing. Each press of the client's
+boost button (can be used while diving or gliding level) spends one stack and adds `BoostAdd` (400% by
+default) to the mount's current speed, up to the `BoostSpeed` ceiling. There is no cooldown, so held
+stacks can be chained into one bigger burst. `BoostFadeMs` is how long the burst takes to bleed back
+to the glide the mount already had, and `BoostCarryPct` folds a slice of every boost into the
+ordinary glide (it decays on the long `GlideMs` curve), so a boost is still felt seconds after the
+burst is gone.
 
 ## Notes
 

@@ -12,10 +12,12 @@
  *   state   C climb, D dive, H hovering, L level / strafe / backward
  *
  * The server answers with its own configured speeds so the client scales its bar, particles and shake
- * to them:  "WXLMS\tS<levelPct>,<divePct>,<boostPct>,<cooldownMs>,<maxStacks>,<boostFadeMs>,<stacks>"  (the
- * same WXLMS prefix; the client reads the last addon message once a second). The trailing <stacks> is
- * the server's live boost-stack count, so the client button mirrors the authoritative value instead of
- * counting speed tiers and drifting; it is re-sent whenever the count changes.
+ * to them:  "WXLMS\tS:<levelPct>,<divePct>,<boostPct>,<cooldownMs>,<maxStacks>,<boostFadeMs>,<stacks>,
+ * <stackMs>,<stackDiveMs>"  (the same WXLMS prefix; the client reads the last addon message once a
+ * second). <cooldownMs> is sent as 0 (the boost has no cooldown) and the two trailing intervals are the
+ * normal and diving stack-recharge cadences. <stacks> is the server's live boost-stack count, so the
+ * client button mirrors the authoritative value instead of drifting; it is re-sent whenever the count
+ * changes.
  *
  * The state is applied over a transition whose length and curve depend on where the speed is going:
  * a dive accelerates into DiveSpeed (faster and faster), pulling out to level is a long glide that
@@ -130,7 +132,9 @@ namespace
     {
         if (reference <= 0.0f)
             return baseMs;
-        return static_cast<uint32>(static_cast<float>(baseMs) * dist / reference);
+        // abs(): a caller may pass a signed distance, and a negative one cast to uint32 wraps to a
+        // multi-day stall instead of a transition.
+        return static_cast<uint32>(static_cast<float>(baseMs) * std::fabs(dist) / reference);
     }
 
     // Transition length for entering `next` from the state we are in.
@@ -201,24 +205,30 @@ namespace
 
         st.stacks--;
 
-        const float add   = boosted - applied;
-        const float carry = add * g_cfg.boostCarryPct;
+        const float add = boosted - applied;
+        float carry     = add * g_cfg.boostCarryPct;
 
         // Replenish part of the boost as ordinary glide time: raise the base transition and restart
         // its fade from there, so the carry decays on the long dive-glide curve, not the short boost
-        // one. This is what leaves the mount still moving after the burst has gone.
-        if (carry > 0.0f)
+        // one. Only fold it when the base is decelerating (current at or above target); while a dive
+        // is still accelerating, folding it would stall the climb to DiveSpeed, so the whole boost
+        // stays in the burst offset instead. The distance is abs()'d: an early-dive fold could
+        // otherwise be negative and wrap the duration to a multi-day stall.
+        if (carry > 0.0f && st.current >= st.target)
         {
             st.start    = st.current + carry;
             st.current  = st.start;
             st.target   = RateFor(st.motion);
             st.elapsed  = 0;
-            st.duration = ScaledMs(g_cfg.glideMs, st.start - st.target,
+            st.duration = ScaledMs(g_cfg.glideMs, std::fabs(st.start - st.target),
                                    std::fabs(g_cfg.diveSpeed - g_cfg.levelSpeed));
             st.curve    = Curve::EaseIn;
         }
+        else
+            carry = 0.0f;
 
-        st.boostStart    = add - carry;
+        // Add to any boost still fading so chained stacks build one bigger burst instead of replacing.
+        st.boostStart    = st.boostOffset + (add - carry);
         st.boostOffset   = st.boostStart;
         st.boostElapsed  = 0;
         st.boostDuration = g_cfg.boostFadeMs;
@@ -267,7 +277,8 @@ namespace
     // Publish the configured speeds and the live stack count to the client so its bar, particles,
     // shake and boost button scale to the values actually in play and its stack count cannot drift from
     // the server's. Same "WXLMS" prefix the client already sends, body
-    // "S:<levelPct>,<divePct>,<boostPct>,<cooldownMs>,<maxStacks>,<boostFadeMs>,<stacks>"; the client polls
+    // "S:<levelPct>,<divePct>,<boostPct>,<cooldownMs>,<maxStacks>,<boostFadeMs>,<stacks>,<stackMs>,
+    // <stackDiveMs>"; the client polls
     // its last addon message once a second and ignores a body it cannot parse. A UI reload on the client
     // drops the value, which the slow resend covers.
     void SendSpeedAnnounce(Player* player, int stacks)
@@ -500,15 +511,20 @@ public:
         }
 
         const float applied = std::min(g_cfg.boostSpeed, current + boostOffset);
+        // Settled once the base transition is done and any boost has fully faded, so the exact final
+        // value is always pushed. Testing `current == target` instead would fire every tick during a
+        // boost fade (the base is settled but the offset is not), defeating the SendMs throttle.
+        const bool settled = (applied == target && boostDuration == 0);
 
         sendAccum += p_time;
-        if (sendAccum >= g_cfg.sendMs || current == target)
-            sendAccum = 0;
-
-        if (applied != lastSent)
+        if (sendAccum >= g_cfg.sendMs || settled)
         {
-            player->SetSpeed(MOVE_FLIGHT, applied, true);
-            lastSent = applied;
+            sendAccum = 0;
+            if (applied != lastSent)
+            {
+                player->SetSpeed(MOVE_FLIGHT, applied, true);
+                lastSent = applied;
+            }
         }
 
         bool stackGained = false;
