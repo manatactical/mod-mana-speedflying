@@ -168,9 +168,10 @@ ManaSpeedFlying.BoostFadeMs = 4000
 #                     mount still carries speed seconds after the burst is gone. 0 makes the boost a
 #                     pure short burst. A boost spent while climbing banks its carried half (a climb
 #                     is not a glide, so there is nothing to fold into *during* the climb); the
-#                     moment you level out, that banked half is released onto a long ease-in glide
-#                     sized by the carry -- a full BoostAdd of carry gets the full GlideMs -- so the
-#                     built-up speed does not empty in three or four seconds.
+#                     moment you level out, the still-running burst is folded into the glide and
+#                     the banked half is spent as extra glide time -- a full BoostAdd of carry gets
+#                     the full GlideMs -- so the built-up speed does not empty in three or four
+#                     seconds, and the bar glides out instead of bumping up first.
 #        Default:     0.50
 #
 

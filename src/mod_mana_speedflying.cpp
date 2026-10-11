@@ -284,18 +284,34 @@ namespace
             st.fromDive = (prev == Motion::Dive);
 
         // Leaving a climb releases the boost carry that was banked there (a climb is not a glide, so
-        // it had nowhere to fold). On leveling out it is added to the level speed and rides the long
-        // ease-in glide down; the still-fading burst keeps running on top and bleeds off on its own.
-        // Any other change out of the climb just carries it into the new transition.
+        // it had nowhere to fold). Leveling out merges the still-fading burst into the base first, so
+        // the applied speed does not step up at the switch, and spends the carry on glide time (the
+        // longer transition below) instead of adding it on top -- the bar glides out instead of
+        // bumping. Any other change out of the climb just carries it into the new transition.
         float foldedCarry = 0.0f;
         if (prev == Motion::Climb && st.pendingCarry > 0.0f)
         {
-            // Leveling out glides from the level speed, so the retained half is measured above the
-            // line the mount is settling onto rather than the slower climb speed. A pull-out that
-            // still carries dive speed keeps its higher current speed instead.
-            const float base = (m == Motion::Level) ? std::max(st.current, RateFor(m)) : st.current;
-            foldedCarry = std::min(st.pendingCarry, std::max(0.0f, g_cfg.boostSpeed - base));
-            st.current = base + foldedCarry;
+            if (m == Motion::Level)
+            {
+                // Fold the fading burst into the base: the transition starts from the live speed, so
+                // there is no upward step. Merging the offset here lets it bleed on the glide curve
+                // instead of running as a second, separately-fading layer below.
+                const float live = std::min(g_cfg.boostSpeed, st.current + st.boostOffset);
+                st.current       = live;
+                st.boostStart    = 0.0f;
+                st.boostOffset   = 0.0f;
+                st.boostElapsed  = 0;
+                st.boostDuration = 0;
+                foldedCarry      = std::min(st.pendingCarry, std::max(0.0f, g_cfg.boostSpeed - live));
+            }
+            else
+            {
+                // A pull-out that still carries dive speed keeps its higher current speed; everything
+                // else keeps the banked half folded into the new transition.
+                const float base = st.current;
+                foldedCarry = std::min(st.pendingCarry, std::max(0.0f, g_cfg.boostSpeed - base));
+                st.current = base + foldedCarry;
+            }
             st.pendingCarry = 0.0f;
         }
 
@@ -306,9 +322,10 @@ namespace
         st.curve    = CurveFor(st, m);
         // A banked carry pays for its own glide: a full BoostAdd of carry buys the full GlideMs, a
         // smaller carry proportionally less, so the retained speed is not dumped in three or four
-        // seconds. Keep whichever glide is longer, so a pull-out that still carries dive speed is
-        // never shortened.
-        if (m == Motion::Level && foldedCarry > 0.0f && g_cfg.boostAdd > 0.0f)
+        // seconds. Only when the mount is actually shedding speed -- an eased rise from below the
+        // level speed would just delay settling, not carry momentum. Keep whichever glide is longer,
+        // so a pull-out that still carries dive speed is never shortened.
+        if (m == Motion::Level && foldedCarry > 0.0f && g_cfg.boostAdd > 0.0f && st.start > st.target)
         {
             const uint32 carryDur = ScaledMs(g_cfg.glideMs, foldedCarry, g_cfg.boostAdd);
             if (carryDur > st.duration)
