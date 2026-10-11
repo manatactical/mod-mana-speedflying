@@ -69,7 +69,7 @@ namespace
         uint32 timeoutMs    = 2500;  // drop the link if no message arrives for this long
         float  boostSpeed   = 16.0f; // 1600%: the button-boost ceiling, above DiveSpeed
         uint32 boostMs      = 4000;  // how long one boost lasts
-        uint32 boostCdMs    = 8000;  // cooldown before the next boost
+        uint32 boostCdMs    = 3000;  // cooldown before the next boost
         int    boostStacks  = 3;     // most boost stacks the button can hold
     };
 
@@ -105,6 +105,7 @@ namespace
         bool   announced = false;         // the client has been told the current speeds
         uint32 lastAnnounce = 0;          // ms of the last speed announce, for the slow resend
         int    stacks = 0;                // boost stacks held (to g_cfg.boostStacks)
+        bool   boostLock = false;         // a boost was spent; no stack gain until the speed falls back
         uint32 cooldown = 0;              // ms left before another boost may fire
         uint32 boostLeft = 0;             // ms left of the active boost (0 = none)
     };
@@ -122,10 +123,11 @@ namespace
         return static_cast<uint32>(static_cast<float>(baseMs) * dist / reference);
     }
 
-    // The rate a state calls for, except that an active boost raises a dive to the boost ceiling.
+    // The rate a state calls for, except that an active boost lifts a dive or a level glide to the
+    // boost ceiling. Climb and hover keep their own rate -- a boost there would fight the state.
     float TargetRate(const PlayerState& st, Motion m)
     {
-        if (m == Motion::Dive && st.boostLeft > 0)
+        if ((m == Motion::Dive || m == Motion::Level) && st.boostLeft > 0)
             return g_cfg.boostSpeed;
         return RateFor(m);
     }
@@ -178,17 +180,18 @@ namespace
         return Curve::Linear;
     }
 
-    // The button boost: spends a stack, starts the cooldown, and opens a boost window during which a
-    // dive is allowed up to BoostSpeed. It can be used in any flight state; only a dive reads the
-    // higher ceiling, but the window (and its cooldown) run regardless.
+    // The button boost: spends a stack, starts the cooldown, and lifts the mount to the boost
+    // ceiling for BoostMs. A dive climbs past the dive ceiling; a level glide is replenished so the
+    // extra speed is spent as glide time. Climb and hover keep their own transition.
     void ActivateBoost(PlayerState& st)
     {
         if (!st.eligible || st.stacks <= 0 || st.cooldown > 0)
             return;
         st.stacks--;
+        st.boostLock = true;
         st.cooldown  = g_cfg.boostCdMs;
         st.boostLeft = g_cfg.boostMs;
-        if (st.motion == Motion::Dive)
+        if (st.motion == Motion::Dive || st.motion == Motion::Level)
         {
             st.start    = st.current;
             st.target   = g_cfg.boostSpeed;
@@ -338,6 +341,7 @@ public:
         float  current, target, start, lastSent;
         uint32 elapsed, duration, sendAccum, sinceLink, cooldown, boostLeft;
         int    stacks;
+        bool   boostLock;
         {
             std::lock_guard<std::mutex> guard(g_lock);
             auto it = g_states.find(guid);
@@ -357,6 +361,7 @@ public:
             cooldown  = it->second.cooldown;
             boostLeft = it->second.boostLeft;
             stacks    = it->second.stacks;
+            boostLock = it->second.boostLock;
         }
 
         if (eligible && g_cfg.timeoutMs)
@@ -385,21 +390,22 @@ public:
                 it->second.sendAccum = 0;
                 it->second.sinceLink = sinceLink;
                 it->second.stacks    = 0;
+                it->second.boostLock = false;
                 it->second.cooldown  = 0;
                 it->second.boostLeft = 0;
             }
             return;
         }
 
-        // Boost timers. When the boost window closes on a dive, settle back to the normal dive speed
-        // from wherever the boost got to.
+        // Boost timers. When the boost window closes, settle back to the state's own speed from
+        // wherever the boost got to. Works for both the dive and the replenished level glide.
         cooldown  = (cooldown  > p_time) ? cooldown  - p_time : 0;
         const bool boostWasActive = boostLeft > 0;
         boostLeft = (boostLeft > p_time) ? boostLeft - p_time : 0;
-        if (boostWasActive && boostLeft == 0 && motion == Motion::Dive)
+        if (boostWasActive && boostLeft == 0 && (motion == Motion::Dive || motion == Motion::Level))
         {
             start    = current;
-            target   = g_cfg.diveSpeed;
+            target   = RateFor(motion);
             elapsed  = 0;
             duration = std::max<uint32>(1, g_cfg.blendMs / 2);
             curve    = Curve::EaseIn;
@@ -431,14 +437,18 @@ public:
         }
 
         // Diving builds boost stacks, ratcheted to the deepest tier reached: 50% of the dive bonus is
-        // one, 80% two, and the full dive ceiling three (capped at the configured stock). No gain while
-        // a boost is running, or the boost's own over-ceiling speed would instantly refill the stack.
-        if (motion == Motion::Dive && boostLeft == 0)
+        // one, 80% two, and the full dive ceiling three (capped at the configured stock). It reads the
+        // speed, not the flight state, so a dive that peaks as the mount pulls out still counts. A
+        // spent boost locks gains until the speed has fallen back below the first tier, so the boost's
+        // own over-ceiling decay cannot refill the stack it just spent.
+        const float tierspan = g_cfg.diveSpeed - g_cfg.levelSpeed;
+        if (tierspan > 0.0f)
         {
-            const float dist = g_cfg.diveSpeed - g_cfg.levelSpeed;
-            if (dist > 0.0f)
+            const float t = (current - g_cfg.levelSpeed) / tierspan;
+            if (boostLock && t < 0.5f)
+                boostLock = false;
+            if (!boostLock)
             {
-                const float t = (current - g_cfg.levelSpeed) / dist;
                 const int tier = t >= 1.0f ? g_cfg.boostStacks
                                : t >= 0.8f ? std::min(2, g_cfg.boostStacks)
                                : t >= 0.5f ? std::min(1, g_cfg.boostStacks)
@@ -472,6 +482,7 @@ public:
             it->second.cooldown  = cooldown;
             it->second.boostLeft = boostLeft;
             it->second.stacks    = stacks;
+            it->second.boostLock = boostLock;
         }
     }
 
@@ -505,7 +516,7 @@ public:
         g_cfg.timeoutMs    = sConfigMgr->GetOption<uint32>("ManaSpeedFlying.TimeoutMs", 2500);
         g_cfg.boostSpeed   = sConfigMgr->GetOption<float>("ManaSpeedFlying.BoostSpeed", 16.0f);
         g_cfg.boostMs      = sConfigMgr->GetOption<uint32>("ManaSpeedFlying.BoostMs", 4000);
-        g_cfg.boostCdMs    = sConfigMgr->GetOption<uint32>("ManaSpeedFlying.BoostCooldownMs", 8000);
+        g_cfg.boostCdMs    = sConfigMgr->GetOption<uint32>("ManaSpeedFlying.BoostCooldownMs", 3000);
         g_cfg.boostStacks  = sConfigMgr->GetOption<int>("ManaSpeedFlying.BoostMaxStacks", 3);
 
         g_cfg.climbSpeed   = std::max(g_cfg.climbSpeed,   0.1f);
