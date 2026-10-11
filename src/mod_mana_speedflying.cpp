@@ -214,9 +214,12 @@ namespace
         // its fade from there, so the carry decays on the long dive-glide curve, not the short boost
         // one. Only fold it when the base is decelerating (current at or above target); while a dive
         // is still accelerating, folding it would stall the climb to DiveSpeed, so the whole boost
-        // stays in the burst offset instead. The distance is abs()'d: an early-dive fold could
-        // otherwise be negative and wrap the duration to a multi-day stall.
-        if (carry > 0.0f && st.current >= st.target)
+        // stays in the burst offset instead. A climb is excluded on purpose: it is not a glide, so
+        // folding the carry here would restart the transition on the long GlideMs EaseIn curve and a
+        // boost spent climbing would hold its speed far longer than the climb itself, draining the
+        // bar slowly instead of settling back to ClimbSpeed. The distance is abs()'d: an early-dive
+        // fold could otherwise be negative and wrap the duration to a multi-day stall.
+        if (carry > 0.0f && st.current >= st.target && st.motion != Motion::Climb)
         {
             st.start    = st.current + carry;
             st.current  = st.start;

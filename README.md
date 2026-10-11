@@ -124,7 +124,8 @@ default) to the mount's current speed, up to the `BoostSpeed` ceiling. There is 
 stacks can be chained into one bigger burst. `BoostFadeMs` is how long the burst takes to bleed back
 to the glide the mount already had, and `BoostCarryPct` folds a slice of every boost into the
 ordinary glide (it decays on the long `GlideMs` curve), so a boost is still felt seconds after the
-burst is gone.
+burst is gone. A boost spent while climbing is not folded: a climb is not a glide, so the whole
+boost is the short burst and the speed settles back to `ClimbSpeed` on the climb's own transition.
 
 ## Notes
 
