@@ -378,6 +378,11 @@ public:
         if (!g_cfg.enabled || !player || !player->IsFlying() || player->IsInFlight() || player->GetVehicle())
             return;
 
+        // A lagging or suspended server (a local worldserver resumed from sleep, say) can hand us a
+        // multi-second p_time. Trusting it lets the recharge block below dump the whole boost stock --
+        // and snap every transition -- in one tick. Bound it to a sane frame.
+        p_time = std::min<uint32>(p_time, 1000);
+
         const uint64 guid = player->GetGUID().GetRawValue();
 
         bool   eligible;
@@ -484,9 +489,9 @@ public:
             if (interval)
             {
                 stackAccum += p_time;
-                while (stackAccum >= interval && stacks < g_cfg.boostStacks)
+                if (stackAccum >= interval)
                 {
-                    stackAccum -= interval;
+                    stackAccum = 0; // one stack per update: a single long p_time must never fill the bar
                     ++stacks;
                 }
             }
