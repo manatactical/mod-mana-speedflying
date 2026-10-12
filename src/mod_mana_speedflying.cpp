@@ -263,6 +263,18 @@ namespace
         return slip > 0.01f ? need / static_cast<double>(slip) : need;
     }
 
+    // The progress bar's fill, in permille of the point being paid for. yardPartial is a yard count,
+    // not a fraction, so it is the next point's own cost that it is measured against. A tree at the
+    // cap has no next point: the bar is full. One definition, so the tally and the bar tick agree.
+    uint32 PartialPermille(uint32 points, double yardPartial, const Talents& t)
+    {
+        if (points >= g_talentCfg.maxPoints) return 1000u;
+        const double need = PointYards(points, t);
+        if (need <= 0.0) return 1000u;
+        const double q = yardPartial / need * 1000.0;
+        return q <= 0.0 ? 0u : (q >= 1000.0 ? 1000u : static_cast<uint32>(q));
+    }
+
     // The shared cap on a talent-raised state speed, as a percentage. Applied to the three base state
     // speeds *before* boostSpeed is derived from their max(), or the derivation undoes the clamp.
     float g_speedCapPct = 1600.0f;
@@ -856,17 +868,9 @@ namespace
         }
         if (n < static_cast<int>(sizeof(body)) - 32)
         {
-            uint32 partial = 0;
-            if (p.yardPartial > 0.0)
-            {
-                // A rolling-window cap can bank more than a whole partial, so it is clamped: the bar
-                // shows "at the next point" rather than overflowing.
-                const double q = p.yardPartial * 1000.0;
-                partial = q > 1000.0 ? 1000u : static_cast<uint32>(q);
-            }
             const double need = p.points < g_talentCfg.maxPoints ? PointYards(p.points, p.tree) : 0.0;
             std::snprintf(body + n, sizeof(body) - static_cast<size_t>(n), ",P%u,N%.0f",
-                          partial, need);
+                          PartialPermille(p.points, p.yardPartial, p.tree), need);
         }
         SendTalentLine(player, body);
     }
@@ -1454,12 +1458,7 @@ public:
         if ((progress.progMs += p_time) >= 500)
         {
             progress.progMs = 0;
-            uint32 partial = 0;
-            if (progress.yardPartial > 0.0)
-            {
-                const double q = progress.yardPartial * 1000.0;
-                partial = q > 1000.0 ? 1000u : static_cast<uint32>(q);
-            }
+            const uint32 partial = PartialPermille(progress.points, progress.yardPartial, progress.tree);
             if (partial != progress.shownPartial || progress.points != progress.shownPoints)
             {
                 progress.shownPartial = partial;
