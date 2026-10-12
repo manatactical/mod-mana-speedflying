@@ -81,7 +81,7 @@ namespace
     enum Effect
     {
         E_DiveMs = 0,          // D1 Steep Descent
-        E_ClimbDecel,          // D2 Held Breath, D5 Aftershock, W15 Rising Current
+        E_ClimbDecel,          // D2 Held Breath, W15 Rising Current
         E_DiveSpeed,           // D3 Terminal Velocity
         E_ShallowPull,         // D4 Shallow Pull: degrees past 30 a pull-out may be and still keep its glide
         E_GlideMs,             // G6 Long Glide
@@ -102,49 +102,55 @@ namespace
     {
         uint16      id;
         uint8       branch;
-        uint8       tier;     // 1..3; a tier opens once its branch holds this many points spent below it
+        uint8       row;      // 1..4, top to bottom
         uint8       maxRank;
-        uint16      prereq;   // talent that must already be at maxRank, 0 for none
         uint8       effect;   // leaf of Config the talent scales; E_Feel is client-side only
         float       pctPerRank;
         const char* name;
         const char* desc;
     };
 
-    // Cost is 1 point per rank; "T1" means one point spent in that branch, which is what opens tier 2.
-    // Append-only, and the client panel lays itself out from these entries.
+    // Cost is 1 point per rank. Rows 1 to 3 are three ranks each and row 4 is a single-rank capstone,
+    // so filling one branch costs 10 of the 12 points a character can ever earn. A row opens only once
+    // every row above it in the same branch is at its full rank, and only one talent of a (branch, row)
+    // group may hold a rank: that exclusivity is the row-2 pick. Both rules live in HandleTalentLearn.
+    // Append-only and never renumber -- the ids key the stored ranks -- and the client panel lays itself
+    // out from these entries.
     const TalentDef kTalents[] =
     {
-        { 1, kBranchDive, 1, 3, 0, E_DiveMs,           -0.08f, "Steep Descent",
+        // Dive
+        { 1, kBranchDive, 1, 3, E_DiveMs,           -0.08f, "Steep Descent",
           "Accelerate into a dive 8% faster per rank." },
-        { 2, kBranchDive, 1, 2, 0, E_ClimbDecel,        0.15f, "Held Breath",
-          "Hold dive speed 15% longer per rank when pulling up into a climb." },
-        { 3, kBranchDive, 2, 3, 1, E_DiveSpeed,         0.06f, "Terminal Velocity",
+        { 3, kBranchDive, 2, 3, E_DiveSpeed,         0.06f, "Terminal Velocity",
           "Reach 6% more dive speed per rank." },
-        { 4, kBranchDive, 2, 2, 1, E_ShallowPull,     15.0f, "Shallow Pull",
-          "Carry 50% more dive speed per rank out of a shallow dive." },
-        { 5, kBranchDive, 3, 1, 3, E_Count,          0.0f,  "Aftershock",
-          "Abort a live boost by diving: the release is immediate." },
-        { 6, kBranchGlide, 1, 3, 0, E_GlideMs,          0.12f, "Long Glide",
+        { 2, kBranchDive, 2, 3, E_ClimbDecel,        0.15f, "Held Breath",
+          "Hold dive speed 15% longer per rank when pulling up into a climb." },
+        { 4, kBranchDive, 3, 3, E_ShallowPull,      15.0f, "Shallow Pull",
+          "A pull-out 15 degrees shallower per rank keeps its whole glide." },
+        { 5, kBranchDive, 4, 1, E_Count,             0.0f, "Aftershock",
+          "Releasing the boost key into a dive commits the burst at once." },
+        // Glide
+        { 6, kBranchGlide, 1, 3, E_GlideMs,          0.12f, "Long Glide",
           "Glide 12% longer per rank out of a dive." },
-        { 7, kBranchGlide, 1, 3, 0, E_YardsPerPoint,    0.12f, "Slipstream",
-          "Earn flight points 12% faster per rank." },
-        { 8, kBranchGlide, 2, 2, 6, E_BoostCarry,       0.10f, "Banked Momentum",
+        { 7, kBranchGlide, 2, 3, E_YardsPerPoint,    0.12f, "Slipstream",
+          "Shorten the step to the next point by 12% per rank." },
+        { 8, kBranchGlide, 2, 3, E_BoostCarry,       0.10f, "Banked Momentum",
           "Fold 10 more points of a boost into the glide per rank." },
-        { 9, kBranchGlide, 2, 1, 6, E_BoostStacks,      0.0f,  "Twin Vault",
-          "Hold one more boost stack." },
-        { 10, kBranchGlide, 3, 2, 8, E_LevelElev,       0.10f, "Skyward Path",
-          "A glide ends 10% above the level bar per rank, then settles over 1.5 s." },
-        { 11, kBranchWings, 1, 3, 0, E_StackDiveInterval, -0.10f, "Diving Wings",
-          "Diving boost stacks recharge 10% faster per rank." },
-        { 12, kBranchWings, 1, 3, 0, E_StackInterval,  -0.08f, "Steady Wings",
+        { 9, kBranchGlide, 3, 3, E_BoostStacks,      1.0f,  "Twin Vault",
+          "Hold one more boost stack per rank." },
+        { 10, kBranchGlide, 4, 1, E_LevelElev,       0.10f, "Skyward Path",
+          "A glide ends above the level bar, settling over 1.5 s." },
+        // Wings
+        { 12, kBranchWings, 1, 3, E_StackInterval,  -0.08f, "Steady Wings",
           "Boost stacks recharge 8% faster per rank." },
-        { 13, kBranchWings, 2, 2, 11, E_BoostAdd,       0.08f, "Iron Wings",
+        { 11, kBranchWings, 2, 3, E_StackDiveInterval, -0.10f, "Diving Wings",
+          "Diving boost stacks recharge 10% faster per rank." },
+        { 13, kBranchWings, 2, 3, E_BoostAdd,         0.08f, "Iron Wings",
           "Each boost adds 8% more speed per rank." },
-        { 14, kBranchWings, 2, 2, 11, E_Feel,          -0.25f, "Smoothed Plumage",
-          "Dive shake 25% quieter per rank, speed motes 15% brighter." },
-        { 15, kBranchWings, 3, 3, 13, E_ClimbDecel,     0.40f, "Rising Current",
+        { 15, kBranchWings, 3, 3, E_ClimbDecel,       0.40f, "Rising Current",
           "A climb keeps 40% more of its entered speed per rank." },
+        { 14, kBranchWings, 4, 1, E_Feel,            -0.25f, "Smoothed Plumage",
+          "Dive shake 25% quieter per rank, speed motes 30% brighter." },
     };
 
     constexpr int kTalentCount = static_cast<int>(sizeof(kTalents) / sizeof(kTalents[0]));
@@ -198,7 +204,9 @@ namespace
     struct TalentConfig
     {
         bool   enabled        = true;
-        float  yardsPerPoint  = 250.0f; // yards of dive-weighted flight per earned point
+        uint32 maxPoints      = 12;     // lifetime cap: 12 points is a fully ranked 10-point branch plus 2
+        float  baseYards      = 500.0f; // yards of flight for the first point
+        float  yardStep       = 0.33f;  // each point after the first needs 33% more than the one before
         uint32 maxPointsPerMinute = 4;  // rolling-window cap; 0 disables (an AFK orbit is free)
         uint32 flushMs        = 20000;  // how often a dirty progress map is written back
         float  diveAccrual    = 1.5f;   // yards count this much more while diving -- diving pays best
@@ -208,54 +216,68 @@ namespace
 
     Config g_cfg;
     TalentConfig g_talentCfg;
-    // Talents.YardsPerPoint, read by the award loop. The player's own copy is a multiplier on top of
-    // it (G7 Slipstream), so the divisor stays the configured base.
-    float g_talentYardsPerPoint = 250.0f;
-
-    // The shared cap on a talent-raised state speed, as a percentage. Applied to the three base state
-    // speeds *before* boostSpeed is derived from their max(), or the derivation undoes the clamp.
-    float g_speedCapPct = 1600.0f;
 
     // Multipliers the tree produces, recomputed from a rank set. Read by the award loop and by the
     // per-player effective config, never by g_cfg.
     struct Talents
     {
         int   ranks[kTalentCount] = {};
-        int   spent[kBranchCount] = {};
         float eff[kEffectCount];
 
         Talents() { for (int i = 0; i < kEffectCount; ++i) eff[i] = 1.0f; }
 
         int Spent() const { int n = 0; for (int i = 0; i < kTalentCount; ++i) n += ranks[i]; return n; }
 
-        // A talent's rank: ranks are stored per talent index, in kTalents order.
-        int RankOf(int index) const { return index >= 0 && index < kTalentCount ? ranks[index] : 0; }
-
-        // Rank of a talent by its wire id (0 if unknown or unranked). Used by the effect checks that
-        // are boolean rather than a multiplier (D5 Aftershock).
-        int RankById(uint16 id) const
+        bool AtMax(int index) const
         {
+            return index >= 0 && index < kTalentCount &&
+                   ranks[index] >= static_cast<int>(kTalents[index].maxRank);
+        }
+
+        // Rows open top down, and only the talents of the row above matter: a row is done when every
+        // talent in it is at full rank, which is the same as "the row's one findable talent is full".
+        bool RowDone(int branch, uint8 row) const
+        {
+            bool any = false;
             for (int i = 0; i < kTalentCount; ++i)
-                if (kTalents[i].id == id)
-                    return ranks[i];
-            return 0;
+            {
+                if (kTalents[i].branch != branch || kTalents[i].row != row)
+                    continue;
+                any = true;
+                if (!AtMax(i))
+                    return false;
+            }
+            return any;
         }
     };
 
+    // The challenge curve lives here once and is read by the award loop. A point's Slipstream bonus
+    // scales its effective requirement rather than the rate yards are banked at, so a rank in it can
+    // only ever shorten the tree. `index` is the point being paid for: the 0th point costs BaseYards.
+    double PointYards(uint32 index, const Talents& t)
+    {
+        double need = static_cast<double>(g_talentCfg.baseYards);
+        for (uint32 i = 0; i < index; ++i)
+            need *= 1.0 + static_cast<double>(g_talentCfg.yardStep);
+        const float slip = t.eff[E_YardsPerPoint];
+        return slip > 0.01f ? need / static_cast<double>(slip) : need;
+    }
+
+    // The shared cap on a talent-raised state speed, as a percentage. Applied to the three base state
+    // speeds *before* boostSpeed is derived from their max(), or the derivation undoes the clamp.
+    float g_speedCapPct = 1600.0f;
+
     // Rebuilds a rank set's multipliers from the table: every effect starts at 1.0 and takes
-    // pctPerRank * rank. Two talents on one effect sum (Held Breath + Rising Current + Aftershock).
+    // pctPerRank * rank. Two talents on one effect sum (Held Breath + Rising Current).
     void BuildTalents(const int ranks[kTalentCount], Talents& out)
     {
         out = Talents();
-        for (int b = 0; b < kBranchCount; ++b)
-            out.spent[b] = 0;
         for (int i = 0; i < kTalentCount; ++i)
         {
             const int r = std::max(0, std::min<int>(ranks[i], kTalents[i].maxRank));
             out.ranks[i] = r;
             if (!r)
                 continue;
-            out.spent[kTalents[i].branch] += r;
             if (kTalents[i].effect < E_Count)
                 out.eff[kTalents[i].effect] += kTalents[i].pctPerRank * r;
         }
@@ -301,7 +323,7 @@ namespace
         if (!c.climbDecelMs) c.climbDecelMs = 1;
         if (!c.stackMs) c.stackMs = 1;
         if (!c.stackDiveMs) c.stackDiveMs = 1;
-        if (c.boostStacks > 4) c.boostStacks = 4; // 3 configured + 1 from G9 Twin Vault
+        if (c.boostStacks > 6) c.boostStacks = 6; // 3 configured + 3 from G9 Twin Vault
     }
 
     // --- per-character talent progress -------------------------------------------------------
@@ -816,23 +838,23 @@ namespace
     }
 
     // The authoritative tally: lifetime points, points spent and unspent, then one id:rank pair per
-    // talent the character owns, then the partial point as a permille for the client's progress bar.
-    // The permille is appended *after* the pairs on purpose: a client that scans the pairs breaks out
-    // on a field it cannot read, so it still gets every rank and only loses the bar.
+    // talent the character owns, then the partial point as a permille and the yards the next point
+    // still needs. Both tail fields are appended *after* the pairs on purpose: a client that scans the
+    // pairs breaks out on a field it cannot read, so it keeps every rank and only loses the bar.
     void SendTalentTally(Player* player, const Progress& p)
     {
         char body[512];
         int n = std::snprintf(body, sizeof(body), "T:%u,%d,%d", p.points, p.Spent(), p.Unspent());
         if (n < 0)
             return;
-        for (int i = 0; i < kTalentCount && n < static_cast<int>(sizeof(body)) - 16; ++i)
+        for (int i = 0; i < kTalentCount && n < static_cast<int>(sizeof(body)) - 32; ++i)
         {
             if (p.tree.ranks[i] <= 0)
                 continue;
             n += std::snprintf(body + n, sizeof(body) - static_cast<size_t>(n), ",%u:%d",
                                static_cast<unsigned>(kTalents[i].id), p.tree.ranks[i]);
         }
-        if (n < static_cast<int>(sizeof(body)) - 16)
+        if (n < static_cast<int>(sizeof(body)) - 32)
         {
             uint32 partial = 0;
             if (p.yardPartial > 0.0)
@@ -842,7 +864,9 @@ namespace
                 const double q = p.yardPartial * 1000.0;
                 partial = q > 1000.0 ? 1000u : static_cast<uint32>(q);
             }
-            std::snprintf(body + n, sizeof(body) - static_cast<size_t>(n), ",P%u", partial);
+            const double need = p.points < g_talentCfg.maxPoints ? PointYards(p.points, p.tree) : 0.0;
+            std::snprintf(body + n, sizeof(body) - static_cast<size_t>(n), ",P%u,N%.0f",
+                          partial, need);
         }
         SendTalentLine(player, body);
     }
@@ -854,8 +878,8 @@ namespace
     }
 
     // Every write validates in this order: a loaded progress row, the id, the rank ceiling, the
-    // prerequisite, the tier, then the derived unspent count -- which is what makes a forged message
-    // cost exactly what a real one would.
+    // row's pick, the rows above it, the lifetime cap, then the derived unspent count -- which is
+    // what makes a forged message cost exactly what a real one would.
     void HandleTalentLearn(Player* player, uint64 guid, int talentId)
     {
         auto it = g_progress.find(guid);
@@ -882,19 +906,24 @@ namespace
             SendTalentRefusal(player, "max-rank");
             return;
         }
-        if (t.prereq)
+        // Only one talent of a (branch, row) group may hold a rank: this is the row-2 pick. An empty
+        // rival is not a refusal, it is an ordinary investment; a ranked rival needs a refund first.
+        for (int i = 0; i < kTalentCount; ++i)
+            if (i != index && kTalents[i].branch == t.branch && kTalents[i].row == t.row &&
+                p.tree.ranks[i] > 0)
+            {
+                SendTalentRefusal(player, "row-taken");
+                return;
+            }
+        for (uint8 r = 1; r < t.row; ++r)
+            if (!p.tree.RowDone(t.branch, r))
+            {
+                SendTalentRefusal(player, "row-locked");
+                return;
+            }
+        if (p.points >= g_talentCfg.maxPoints)
         {
-            for (int i = 0; i < kTalentCount; ++i)
-                if (kTalents[i].id == t.prereq && p.tree.ranks[i] < static_cast<int>(kTalents[i].maxRank))
-                {
-                    SendTalentRefusal(player, "prereq");
-                    return;
-                }
-        }
-        // The tier is paid for by points already spent in the same branch.
-        if (p.tree.spent[t.branch] < static_cast<int>(t.tier) - 1)
-        {
-            SendTalentRefusal(player, "tier-locked");
+            SendTalentRefusal(player, "all-spent");
             return;
         }
         if (p.Unspent() <= 0)
@@ -911,9 +940,12 @@ namespace
         SendTalentTally(player, p);
     }
 
-    // Respec: refund one branch ("1".."3") or everything ("A"). Free unless Talents.RespecCost is
-    // set. Every refunded point returns to the derived unspent count, and a tier whose spending falls
-    // below its cost relocks on its own -- the lock is read from that count, never stored.
+    // Respec: refund one branch ("b1".."b3", or a legacy "1".."3") or the whole tree ("A"). Free
+    // unless Talents.RespecCost is set. A branch is the only scope that can be refunded on its own: a
+    // single row cannot, because a row below it only opens on it being full, and refunding one talent
+    // of a row-2 pick would leave the group half-picked. Every refunded point returns to the derived
+    // unspent count. The argument is parsed strictly -- a malformed one is refused, never defaulted,
+    // because "refund everything" is the one destructive branch and must not be the fallback.
     void HandleTalentRefund(Player* player, uint64 guid, const std::string& what)
     {
         auto it = g_progress.find(guid);
@@ -924,11 +956,22 @@ namespace
         }
         Progress& p = it->second;
 
-        const int branch = what == "A" ? -1 : std::atoi(what.c_str()) - 1;
-        if (branch < -1 || branch >= static_cast<int>(kBranchCount))
+        int branch = -1; // -1 = every branch
+        if (what == "A")
         {
-            SendTalentRefusal(player, "bad-branch");
-            return;
+            branch = -1;
+        }
+        else
+        {
+            // "b<N>" is what this client sends; a bare "<N>" is accepted so an older build of it keeps
+            // working. Anything else -- empty, zero, non-numeric, out of range -- is refused.
+            const char* digits = (what.size() >= 2 && what[0] == 'b') ? what.c_str() + 1 : what.c_str();
+            if (digits[0] < '1' || digits[0] > '3' || digits[1] != '\0')
+            {
+                SendTalentRefusal(player, "bad-branch");
+                return;
+            }
+            branch = digits[0] - '0' - 1;
         }
 
         // Check affordability once, before anything is refunded, so a half-applied respec is not a
@@ -964,7 +1007,7 @@ namespace
 
     // Parses a "WXLTT" body. Everything arriving here is a *request*: the server decides. A refusal is
     // an answer, never a silent drop, so the client panel cannot drift out of step.
-    //   WXLTT\tW\t<talentId>   WXLTT\tR\t<1|2|3|A>   WXLTT\tQ
+    //   WXLTT\tW\t<talentId>   WXLTT\tR\t<b1|b2|b3|A>   WXLTT\tQ
     void HandleTalentMessage(Player* player, const std::string& msg)
     {
         if (!g_talentCfg.enabled)
@@ -991,9 +1034,20 @@ namespace
         switch (msg[op])
         {
             case 'W':
+                // A truncated argument would read past the NUL; the channel is untrusted input.
+                if (msg.size() <= op + 1)
+                {
+                    SendTalentRefusal(player, "bad-arg");
+                    break;
+                }
                 HandleTalentLearn(player, guid, std::atoi(msg.c_str() + op + 2));
                 break;
             case 'R':
+                if (msg.size() <= op + 1)
+                {
+                    SendTalentRefusal(player, "bad-arg");
+                    break;
+                }
                 HandleTalentRefund(player, guid, msg.substr(op + 2));
                 break;
             case 'Q':
@@ -1178,14 +1232,27 @@ public:
                             g_states[guid].divePitch = static_cast<float>(
                                 std::atan2(-dz, std::sqrt(dx * dx + dy * dy)) * 57.2957795);
                         const float weight = (m == Motion::Dive) ? g_talentCfg.diveAccrual : 1.0f;
-                        progress.yardPartial += static_cast<double>(yards * weight) *
-                                                progress.tree.eff[E_YardsPerPoint] / g_talentYardsPerPoint;
+                        progress.yardPartial += static_cast<double>(yards * weight);
+                        if (progress.yardPartial > 0.0)
+                            progress.dirty = true; // the fraction survives a logout too
+                        // The award cascade: one tick can cross several (increasingly longer) steps of the
+                        // curve after a teleport-free burst of speed, so the loop re-reads the yard cost
+                        // of the point it is about to pay. That cost is also the meter the panel reads as
+                        // pointIndex/maxPoints, so no second counter has to be kept in step with it.
                         while (progress.yardPartial >= 1.0)
                         {
-                            progress.yardPartial -= 1.0;
+                            if (progress.points >= g_talentCfg.maxPoints)
+                            {
+                                progress.yardPartial = 0.0; // the tree is full: stop banking yards
+                                break;
+                            }
                             if (g_talentCfg.maxPointsPerMinute &&
                                 progress.recentPoints >= g_talentCfg.maxPointsPerMinute)
                                 break; // the rolling cap: an AFK orbit is not the whole economy
+                            const double need = PointYards(progress.points, progress.tree);
+                            if (progress.yardPartial < need)
+                                break;
+                            progress.yardPartial -= need;
                             progress.points++;
                             progress.recentPoints++;
                             progress.dirty = true;
@@ -1426,7 +1493,6 @@ public:
 
     // The link state and the progress map both go on logout: the state is volatile, the progress is
     // flushed first so a relog finds exactly the ranks and the points it earned.
-    // flushed first so a relog finds exactly the ranks and the points it earned.
     void OnPlayerLogout(Player* player) override
     {
         if (!player)
@@ -1461,7 +1527,15 @@ class ManaSpeedFlyingWorld : public WorldScript
 {
 public:
     ManaSpeedFlyingWorld()
-        : WorldScript("ManaSpeedFlyingWorld", { WORLDHOOK_ON_AFTER_CONFIG_LOAD }) {}
+        : WorldScript("ManaSpeedFlyingWorld", { WORLDHOOK_ON_AFTER_CONFIG_LOAD, WORLDHOOK_ON_SHUTDOWN }) {}
+
+    // The shutdown flush the review asked for: without it a graceful restart loses every rank bought
+    // and every yard flown since the last flush. Runs while the maps are still alive, hence the hook.
+    void OnShutdown() override
+    {
+        std::lock_guard<std::mutex> guard(g_lock);
+        FlushAllProgress(true);
+    }
 
     void OnAfterConfigLoad(bool /*reload*/) override
     {
@@ -1490,7 +1564,11 @@ public:
         // module runs with no talent key present at all.
         TalentConfig tc;
         tc.enabled        = sConfigMgr->GetOption<bool>("Talents.Enable", true);
-        tc.yardsPerPoint  = sConfigMgr->GetOption<float>("Talents.YardsPerPoint", 250.0f);
+        // The earning curve: the first point costs Talents.BaseYards, each one after it costs 33%
+        // more than the point before. 500, 665, 884 ... yd, 12 points, about 24,600 yd in total.
+        tc.baseYards      = sConfigMgr->GetOption<float>("Talents.BaseYards", 500.0f);
+        tc.yardStep       = sConfigMgr->GetOption<float>("Talents.YardStep", 0.33f);
+        tc.maxPoints      = sConfigMgr->GetOption<uint32>("Talents.MaxPoints", 12);
         tc.maxPointsPerMinute = sConfigMgr->GetOption<uint32>("Talents.MaxPointsPerMinute", 4);
         tc.respecCost     = sConfigMgr->GetOption<uint32>("Talents.RespecCost", 0);
 
@@ -1512,7 +1590,11 @@ public:
         if (!cfg.stackMs) cfg.stackMs = 1;
         if (!cfg.stackDiveMs) cfg.stackDiveMs = 1;
         if (!cfg.sendMs) cfg.sendMs = 1;
-        if (tc.yardsPerPoint < 1.0f) tc.yardsPerPoint = 1.0f;
+        if (tc.baseYards < 1.0f) tc.baseYards = 1.0f;
+        // A negative or huge step would make the curve non-monotonic or overflow the double.
+        tc.yardStep = std::max(0.0f, std::min(tc.yardStep, 10.0f));
+        if (!tc.maxPoints) tc.maxPoints = 12;
+        tc.maxPoints = std::min(tc.maxPoints, 64u); // the panel lays out a fixed 13 slots
         if (tc.teleportYards < 50.0f) tc.teleportYards = 50.0f;
 
         // Publish the new config and drop every link under the lock readers take. The entries are kept
@@ -1521,7 +1603,6 @@ public:
         std::lock_guard<std::mutex> guard(g_lock);
         g_cfg = cfg;
         g_talentCfg = tc;
-        g_talentYardsPerPoint = tc.yardsPerPoint;
         g_speedCapPct = speedCapPct;
 
         // Every live player's effective config is rebuilt from the new base, so a reload reaches
