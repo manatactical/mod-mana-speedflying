@@ -31,8 +31,11 @@
  *   client -> server:  WXLTT\tW\t<talentId>   learn one rank
  *                      WXLTT\tR\t<1|2|3|A>    refund a branch (or A for everything)
  *                      WXLTT\tQ                request the tree
- *   server -> client:  WXLTT\tT\t<points>,<spent>,<unspent>[,<id>:<rank>,...]
+ *   server -> client:  WXLTT\tT\t<points>,<spent>,<unspent>[,<id>:<rank>,...][,P<permille>]
  *                      WXLTT\tF\t<reason>     a refusal, echoed for the panel
+ *
+ * The tally is also re-sent while a partial point accrues (about twice a second, when the permille
+ * it carries moves), which is what keeps the client's progress bar honest.
  *
  * Points are earned per character by flying: yards travelled on an AdvFly mount while the link is
  * up, at Talents.YardsPerPoint per whole point, capped per rolling minute. Ranks are authoritative
@@ -315,6 +318,12 @@ namespace
         uint32   accMs      = 0;            // ms since the last flush check
         uint32   recentPoints = 0;          // points paid inside the rolling window below
         uint32   windowMs   = 0;            // ms left in that window
+        // The partial point the progress bar last showed (a permille), so a bar tick that moved it can
+        // push a tally once. A points change forces one regardless.
+        uint32   shownPartial = 0;
+        uint32   shownPoints  = 0;
+        uint32   progMs       = 0;            // ms since the progress bar was last re-announced
+
         // The flight position the previous accrual tick saw, so a tick pays the distance it covered.
         bool     havePos    = false;
         float    lastX = 0.0f, lastY = 0.0f, lastZ = 0.0f;
@@ -351,6 +360,8 @@ namespace
     {
         p.points = 0;
         p.yardPartial = 0.0;
+        p.shownPartial = 0;
+        p.shownPoints = 0;
         p.tree = Talents();
 
         if (QueryResult r = CharacterDatabase.Query(
@@ -805,7 +816,9 @@ namespace
     }
 
     // The authoritative tally: lifetime points, points spent and unspent, then one id:rank pair per
-    // talent the character owns. Trailing pairs are a list, so a new talent needs no protocol change.
+    // talent the character owns, then the partial point as a permille for the client's progress bar.
+    // The permille is appended *after* the pairs on purpose: a client that scans the pairs breaks out
+    // on a field it cannot read, so it still gets every rank and only loses the bar.
     void SendTalentTally(Player* player, const Progress& p)
     {
         char body[512];
@@ -818,6 +831,18 @@ namespace
                 continue;
             n += std::snprintf(body + n, sizeof(body) - static_cast<size_t>(n), ",%u:%d",
                                static_cast<unsigned>(kTalents[i].id), p.tree.ranks[i]);
+        }
+        if (n < static_cast<int>(sizeof(body)) - 16)
+        {
+            uint32 partial = 0;
+            if (p.yardPartial > 0.0)
+            {
+                // A rolling-window cap can bank more than a whole partial, so it is clamped: the bar
+                // shows "at the next point" rather than overflowing.
+                const double q = p.yardPartial * 1000.0;
+                partial = q > 1000.0 ? 1000u : static_cast<uint32>(q);
+            }
+            std::snprintf(body + n, sizeof(body) - static_cast<size_t>(n), ",P%u", partial);
         }
         SendTalentLine(player, body);
     }
@@ -1355,6 +1380,26 @@ public:
         {
             progress.accMs = 0;
             FlushAllProgress();
+        }
+
+        // The talent bar's fill. Nothing else tells the client how far along the partial point is (a
+        // tally only arrives on a change), so a tally is re-sent when it moves, on a coarse floor.
+        // Sending the tally, rather than a second opcode, keeps one shape for the client to parse.
+        if ((progress.progMs += p_time) >= 500)
+        {
+            progress.progMs = 0;
+            uint32 partial = 0;
+            if (progress.yardPartial > 0.0)
+            {
+                const double q = progress.yardPartial * 1000.0;
+                partial = q > 1000.0 ? 1000u : static_cast<uint32>(q);
+            }
+            if (partial != progress.shownPartial || progress.points != progress.shownPoints)
+            {
+                progress.shownPartial = partial;
+                progress.shownPoints  = progress.points;
+                SendTalentTally(player, progress);
+            }
         }
     }
 

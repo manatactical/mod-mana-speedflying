@@ -83,13 +83,19 @@ working against this server. Append only; never reorder or renumber a field.
 client -> server:  WXLTT<TAB>W<TAB><talentId>   learn one rank
                    WXLTT<TAB>R<TAB><1|2|3|A>    refund a branch, or A for everything
                    WXLTT<TAB>Q                  request the current tree
-	server -> client:  WXLTT<TAB>T<TAB><points>,<spent>,<unspent>[,<id>:<rank>,...]
+	server -> client:  WXLTT<TAB>T<TAB><points>,<spent>,<unspent>[,<id>:<rank>,...][,P<permille>]
                    WXLTT<TAB>F<TAB><reason>     a refusal, echoed for the panel
 ```
 
 The tally's trailing `id:rank` pairs are a list, so a new talent needs no protocol change, and the
 `F` reply means a refusal is always answered rather than silently dropped -- that is what stops the
 panel drifting out of step with the server. A tally is sent after every `W`, `R` and `Q`.
+
+The optional trailing `,P<permille>` is the partial point as thousandths, for the client's progress
+bar. It is appended **after** the rank pairs on purpose: a client parses a pair it cannot read as the
+end of the list, so an older panel keeps every rank and only loses the bar. The tally is also re-sent
+while a partial point accrues (at most twice a second, and only when the permille it carries moves),
+since the panel has no other way to see the number move.
 
 Every write validates in this order, inside one lock: config enabled, the player is on a mount, the
 character has a progress row, the talent id is known, `rank + 1 <= maxRank`, the prerequisite is at
