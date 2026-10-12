@@ -230,7 +230,7 @@ ManaSpeedFlying.StackDiveIntervalMs = 3000
 #
 #    Talents.Enable
 #        Description: Enable the speedflying talent tree. Points are earned per character by flying
-#                     on an AdvFly mount and spent on three branches (Dive, Glide, Wings) of four rows
+#                     on an AdvFly mount and spent on three branches (Dive, Glide, Wings) of four tiers
 #                     each. With this off, no points are earned or spent and the panel's learn and
 #                     refund requests are refused.
 #        Default:     1 - Enabled
@@ -242,7 +242,7 @@ Talents.Enable = 1
 #
 #    Talents.MaxPoints
 #        Description: Lifetime points one character may ever earn. Filling one branch costs 10 points
-#                     (3+3+3+1), so 12 leaves a whole branch plus two rows of a second. At the cap the
+#                     (3+3+3+1), so 12 leaves a whole branch plus two tiers of a second. At the cap the
 #                     yard meter stops charging and the panel says every point is earned.
 #        Default:     12
 #
@@ -253,10 +253,11 @@ Talents.MaxPoints = 12
 #    Talents.BaseYards
 #        Description: Yards of flight that earn the *first* talent point. Every point after it costs
 #                     Talents.YardStep more than the point before, so the tree gets longer as it fills:
-#                     500, 665, 884 ... yd, about 24,600 yd for all 12. A dive counts as 1.5x its
-#                     distance (fixed, so diving pays best). Glide talent 7 (Slipstream, 3 ranks)
-#                     shortens the step by 12% per rank -- it shortens the curve, it does not bank yards
-#                     faster. Lower BaseYards to make the tree faster to fill.
+#                     with the default 1.0 the curve doubles -- 500, 1000, 2000 ... yd, about 2.05M
+#                     yards for all 12. A dive counts as 1.5x its distance (fixed, so diving pays best).
+#                     Glide talent 7 (Slipstream, 3 ranks) shortens the step by 12% per rank -- it
+#                     shortens the curve, it does not bank yards faster. Lower BaseYards or YardStep to
+#                     make the tree faster to fill.
 #        Default:     500.0
 #
 
@@ -264,12 +265,14 @@ Talents.BaseYards = 500.0
 
 #
 #    Talents.YardStep
-#        Description: How much more each point costs than the point before it, as a fraction: 0.33 means
-#                     point n+1 needs 33% more yards than point n. 0 makes every point cost BaseYards.
-#        Default:     0.33
+#        Description: How much more each point costs than the point before it, as a fraction: 1.0 means
+#                     each point needs twice the yards of the one before, 0.33 means a third more, 0
+#                     makes every point cost BaseYards. Beware: at 1.0 the last point alone costs 500 *
+#                     2^11 = 1,024,000 yards, which is a very long climb.
+#        Default:     1.0
 #
 
-Talents.YardStep = 0.33
+Talents.YardStep = 1.0
 
 #
 #    Talents.MaxPointsPerMinute
@@ -314,25 +317,25 @@ ManaSpeedFlying.SpeedCapPct = 1600.0
 # -8% of ManaSpeedFlying.DiveMs per rank, so it is tuned through DiveMs and adds no key of its own.
 # The list below records which key each talent moves, for operators raising a base value.
 #
-#   id  branch  row  name                 max  effect
-#    1  Dive    1    Steep Descent          3  -8%  ManaSpeedFlying.DiveMs per rank
-#    3  Dive    2    Terminal Velocity      3  +6%  ManaSpeedFlying.DiveSpeed per rank (cap above)
-#    2  Dive    2    Held Breath            3  +15% ManaSpeedFlying.ClimbDecelMs per rank
-#    4  Dive    3    Shallow Pull           3  +15 degrees kept on a pull-out per rank
-#    5  Dive    4    Aftershock             1  releasing the boost key into a dive lands at once
-#    6  Glide   1    Long Glide             3  +12% ManaSpeedFlying.GlideMs per rank
-#    7  Glide   2    Slipstream             3  -12% of Talents.YardStep per rank (see BaseYards)
-#    8  Glide   2    Banked Momentum        3  +10 points of ManaSpeedFlying.BoostCarryPct per rank
-#    9  Glide   3    Twin Vault             3  +1 ManaSpeedFlying.BoostMaxStacks per rank
-#   10  Glide   4    Skyward Path           1  a glide may end above ManaSpeedFlying.LevelSpeed
-#   12  Wings   1    Steady Wings           3  -8%  ManaSpeedFlying.StackIntervalMs per rank
-#   11  Wings   2    Diving Wings           3  -10% ManaSpeedFlying.StackDiveIntervalMs per rank
-#   13  Wings   2    Iron Wings             3  +8%  ManaSpeedFlying.BoostAdd per rank
-#   15  Wings   3    Rising Current         3  +40% a climb keeps its entered speed, per rank
-#   14  Wings   4    Smoothed Plumage       1  client-side only: dive shake, speed-mote density
+#   id  branch  tier  name                 max  effect
+#    1  Dive    1     Steep Descent          3  -8%  ManaSpeedFlying.DiveMs per rank
+#    3  Dive    2     Terminal Velocity      3  +6%  ManaSpeedFlying.DiveSpeed per rank (cap above)
+#    2  Dive    2     Held Breath            3  +15% ManaSpeedFlying.ClimbDecelMs per rank
+#    4  Dive    3     Shallow Pull           3  +15 degrees kept on a pull-out per rank
+#    5  Dive    4     Aftershock             1  releasing the boost key into a dive lands at once
+#    6  Glide   1     Long Glide             3  +12% ManaSpeedFlying.GlideMs per rank
+#    7  Glide   2     Slipstream             3  -12% of Talents.YardStep per rank (see BaseYards)
+#    8  Glide   2     Banked Momentum        3  +10 points of ManaSpeedFlying.BoostCarryPct per rank
+#   10  Glide   3     Skyward Path           3  +10% ManaSpeedFlying.LevelSpeed per rank of glide elevation
+#    9  Glide   4     Twin Vault             1  +1 ManaSpeedFlying.BoostMaxStacks: a fourth boost stack
+#   14  Wings   1     Smoothed Plumage       3  client-side only: dive shake, speed-mote density
+#   12  Wings   2     Steady Wings           3  -8%  ManaSpeedFlying.StackIntervalMs per rank
+#   11  Wings   2     Diving Wings           3  -10% ManaSpeedFlying.StackDiveIntervalMs per rank
+#   13  Wings   3     Iron Wings             3  +8%  ManaSpeedFlying.BoostAdd per rank
+#   15  Wings   4     Rising Current         1  +40% a climb keeps its entered speed
 #
-# Row 1 in a branch is free to buy. Rows 2 and 3 of a branch open only once the row above them is at
-# full rank, so one branch costs 3+3+3+1 = 10 points to fill with one capstone. Row 2 is a *pick*: of
+# Tier 1 in a branch is free to buy. Tiers 2 and 3 of a branch open only once the tier above them is at
+# full rank, so one branch costs 3+3+3+1 = 10 points to fill with one capstone. Tier 2 is a *pick*: of
 # the two talents in it only one may hold a rank at a time -- refund one before buying the other.
 #
 # Held Breath and Rising Current both scale ClimbDecelMs. Their ranks are summed into one

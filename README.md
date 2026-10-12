@@ -99,13 +99,13 @@ while a partial point accrues (at most twice a second, and only when the permill
 since the panel has no other way to see the number move.
 
 Every write validates in this order, inside one lock: config enabled, the player is on a mount, the
-character has a progress row, the talent id is known, `rank + 1 <= maxRank`, the row's pick is free,
-every row above it in the branch is at full rank, the lifetime cap, and only then the derived unspent
+character has a progress row, the talent id is known, `rank + 1 <= maxRank`, the tier's pick is free,
+every tier above it in the branch is at full rank, the lifetime cap, and only then the derived unspent
 count. A forged learn message therefore costs exactly what a real one would.
 
-A row opens top down inside its branch: rows 2 and 3 need the row above them full in *every* talent
-it holds, so filling a branch costs `3+3+3+1 = 10` points. Row 2 is a **pick of two** -- the server
-refuses the rival of a ranked talent with `row-taken`, so switching halves needs a respec.
+A tier opens top down inside its branch: tiers 2 and 3 need the tier above them full in *every* talent
+it holds, so filling a branch costs `3+3+3+1 = 10` points. Tier 2 is a **pick of two** -- the server
+refuses the rival of a ranked talent with `tier-taken`, so switching halves needs a respec.
 
 D5 **Aftershock** is the one client→server message that is not the tree itself: it reuses the
 `WXLMS` link's state byte with a new letter `X`, sent when the boost key comes up while a boost is
@@ -113,10 +113,10 @@ still live. The server checks the rank itself, so an `X` from a character withou
 nothing, and matches on count exactly like a real one. An older server that does not know `X` falls
 back to its `default:` branch and treats it as a plain level state -- degraded, not broken.
 
-Only client-side talents need a wire field. 14 (Smoothed Plumage) is feel-only, so its ranks ride
-the tally and the client scales its own dive shake and mote density; every other talent is applied
-entirely server-side and needs nothing new, which is what keeps the protocol append-only instead of
-adding a field per talent.
+Only client-side talents need a wire field. 14 (Smoothed Plumage, now a tier-1 talent) is feel-only,
+so its ranks ride the tally and the client scales its own dive shake and mote density; every other
+talent is applied entirely server-side and needs nothing new, which is what keeps the protocol
+append-only instead of adding a field per talent.
 
 ## Requirements
 
@@ -133,19 +133,20 @@ worldserver. The build copies `mod-mana-speedflying.conf.dist` into `configs/`; 
 ## The talent tree
 
 Each character earns **points** by flying on an AdvFly mount, and spends them on 15 talents in three
-branches of four rows. The server owns the tree: the client only renders it. A dive counts 1.5x its
+branches of four tiers. The server owns the tree: the client only renders it. A dive counts 1.5x its
 distance (so diving pays best), earning is capped per rolling minute by `Talents.MaxPointsPerMinute`
 (`0` removes the cap), and a tick covering more than 200 yards is treated as a teleport and earns
 nothing. **12 points is the lifetime cap** (`Talents.MaxPoints`): a full branch costs 10 (3+3+3+1),
-so 12 buys a whole branch plus two rows of a second one.
+so 12 buys a whole branch plus two tiers of a second one.
 
 The yard cost of each point rises: **`Talents.BaseYards` (500) for the first, then +`Talents.YardStep`
-(33%) for every point after it** -- 500, 665, 884, 1176 ... yd, about 24,600 yd for all 12. Slipstream
+(100%, the default) for every point after it** -- the step *doubles*: 500, 1000, 2000, 4000 ... yd,
+about 2.05M yards for all 12. Slipstream
 scales the *step* of the next point rather than the rate yards are banked at, so a rank in it can only
 ever shorten the tree. The panel's bar shows the 12-step progress and the yards still owed.
 
-| id | branch | row | name | ranks | effect (percentage of the key above) |
-|----|--------|-----|------|-------|---------------------------------------|
+| id | branch | tier | name | ranks | effect (percentage of the key above) |
+|----|--------|------|------|-------|---------------------------------------|
 | 1 | Dive | 1 | Steep Descent | 3 | `DiveMs` -8% per rank |
 | 3 | Dive | 2 | Terminal Velocity | 3 | `DiveSpeed` +6% per rank, capped by `SpeedCapPct` |
 | 2 | Dive | 2 | Held Breath | 3 | `ClimbDecelMs` +15% per rank |
@@ -154,19 +155,19 @@ ever shorten the tree. The panel's bar shows the 12-step progress and the yards 
 | 6 | Glide | 1 | Long Glide | 3 | `GlideMs` +12% per rank |
 | 7 | Glide | 2 | Slipstream | 3 | the next point's `YardStep` -12% per rank |
 | 8 | Glide | 2 | Banked Momentum | 3 | boost carry +10 points of `BoostCarryPct` per rank |
-| 9 | Glide | 3 | Twin Vault | 3 | `BoostMaxStacks` +1 per rank |
-| 10 | Glide | 4 | Skyward Path | 1 | a glide ends above the level bar, settling over 1.5 s |
-| 12 | Wings | 1 | Steady Wings | 3 | `StackIntervalMs` -8% per rank |
+| 10 | Glide | 3 | Skyward Path | 3 | `LevelSpeed` +10% per rank of glide elevation |
+| 9 | Glide | 4 | Twin Vault | 1 | `BoostMaxStacks` +1: a **fourth** boost stack |
+| 14 | Wings | 1 | Smoothed Plumage | 3 | client-side only: dive shake, speed-mote density |
+| 12 | Wings | 2 | Steady Wings | 3 | `StackIntervalMs` -8% per rank |
 | 11 | Wings | 2 | Diving Wings | 3 | `StackDiveIntervalMs` -10% per rank |
-| 13 | Wings | 2 | Iron Wings | 3 | `BoostAdd` +8% per rank |
-| 15 | Wings | 3 | Rising Current | 3 | `ClimbDecelMs` +40% per rank |
-| 14 | Wings | 4 | Smoothed Plumage | 1 | client-side only: dive shake, speed-mote density |
+| 13 | Wings | 3 | Iron Wings | 3 | `BoostAdd` +8% per rank |
+| 15 | Wings | 4 | Rising Current | 1 | `ClimbDecelMs` +40%: a climb keeps its entered speed |
 
-- **Row gate.** Row 1 is free to buy. Rows 2 and 3 open only once the row above them is at full rank
-  (in every talent it holds), so a branch is 3+3+3+1 = 10 points. Row 4 is a single-rank capstone.
-- **Row 2 is a pick.** Of the two talents in a row-2 group only one may hold a rank; the server
-  refuses the rival with `row-taken`. Switch halves by resetting the branch (`Reset`, or right-click a
-  row).
+- **Tier gate.** Tier 1 is free to buy. Tiers 2 and 3 open only once the tier above them is at full
+  rank (in every talent it holds), so a branch is 3+3+3+1 = 10 points. Tier 4 is a single-rank capstone.
+- **Tier 2 is a pick.** Of the two talents in a tier-2 group only one may hold a rank; the server
+  refuses the rival with `tier-taken`. Switch halves by resetting the branch (`Reset`, or right-click a
+  talent).
 - **No effect is ever applied twice.** D2 and W15 both move `ClimbDecelMs`; their ranks are summed
   into one multiplier, not compounded. D3 is the only talent that raises a state speed, and the boost
   ceiling is derived from the fastest state -- so `SpeedCapPct` is applied to the base states *before*
@@ -180,7 +181,6 @@ ever shorten the tree. The panel's bar shows the 12-step progress and the yards 
   timer, on logout and on world shutdown. Respec (`WXLTT\tR\t<b1|b2|b3|A>`) is free by default and
   takes the `Talents.RespecCost` if set; it refuses rather than half-applies when the money is missing.
   Deleting a character deletes both of its rows, so a recycled guid cannot inherit a tree.
-
 Points are keyed on the character's low guid (`characters.guid`, i.e. `GetGUID().GetCounter()`), and the
 module cannot add a prepared statement -- the `CharacterDatabaseStatements` enum lives in the core -- so
 the queries interpolate integers only, never a string.
@@ -217,7 +217,7 @@ ManaSpeedFlying.SpeedCapPct  = 1600.0 ; ceiling a talent may raise a base state 
 Talents.Enable             = 1   ; master switch for earning and spending
 Talents.MaxPoints          = 12  ; lifetime cap on earned points
 Talents.BaseYards          = 500.0 ; yards for the first point
-Talents.YardStep           = 0.33  ; each point after the first costs this much more
+Talents.YardStep           = 1.0   ; each point after the first costs this much more (1.0 = doubles)
 Talents.MaxPointsPerMinute = 4   ; rolling-window cap; 0 = uncapped
 Talents.RespecCost         = 0   ; copper per respec; 0 = free
 ```

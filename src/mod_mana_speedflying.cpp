@@ -102,7 +102,7 @@ namespace
     {
         uint16      id;
         uint8       branch;
-        uint8       row;      // 1..4, top to bottom
+        uint8       tier;     // 1..4, top to bottom
         uint8       maxRank;
         uint8       effect;   // leaf of Config the talent scales; E_Feel is client-side only
         float       pctPerRank;
@@ -110,10 +110,10 @@ namespace
         const char* desc;
     };
 
-    // Cost is 1 point per rank. Rows 1 to 3 are three ranks each and row 4 is a single-rank capstone,
-    // so filling one branch costs 10 of the 12 points a character can ever earn. A row opens only once
-    // every row above it in the same branch is at its full rank, and only one talent of a (branch, row)
-    // group may hold a rank: that exclusivity is the row-2 pick. Both rules live in HandleTalentLearn.
+    // Cost is 1 point per rank. Tiers 1 to 3 are three ranks each and tier 4 is a single-rank capstone,
+    // so filling one branch costs 10 of the 12 points a character can ever earn. A tier opens only once
+    // every tier above it in the same branch is at its full rank, and only one talent of a (branch, tier)
+    // group may hold a rank: that exclusivity is the tier-2 pick. Both rules live in HandleTalentLearn.
     // Append-only and never renumber -- the ids key the stored ranks -- and the client panel lays itself
     // out from these entries.
     const TalentDef kTalents[] =
@@ -136,21 +136,21 @@ namespace
           "Shorten the step to the next point by 12% per rank." },
         { 8, kBranchGlide, 2, 3, E_BoostCarry,       0.10f, "Banked Momentum",
           "Fold 10 more points of a boost into the glide per rank." },
-        { 9, kBranchGlide, 3, 3, E_BoostStacks,      1.0f,  "Twin Vault",
-          "Hold one more boost stack per rank." },
-        { 10, kBranchGlide, 4, 1, E_LevelElev,       0.10f, "Skyward Path",
-          "A glide ends above the level bar, settling over 1.5 s." },
+        { 10, kBranchGlide, 3, 3, E_LevelElev,       0.10f, "Skyward Path",
+          "Glide 10% further above the level bar per rank." },
+        { 9, kBranchGlide, 4, 1, E_BoostStacks,      1.0f,  "Twin Vault",
+          "Hold a fourth boost stack." },
         // Wings
-        { 12, kBranchWings, 1, 3, E_StackInterval,  -0.08f, "Steady Wings",
+        { 14, kBranchWings, 1, 3, E_Feel,            -0.25f, "Smoothed Plumage",
+          "Dive shake 25% quieter per rank, speed motes 30% brighter." },
+        { 12, kBranchWings, 2, 3, E_StackInterval,  -0.08f, "Steady Wings",
           "Boost stacks recharge 8% faster per rank." },
         { 11, kBranchWings, 2, 3, E_StackDiveInterval, -0.10f, "Diving Wings",
           "Diving boost stacks recharge 10% faster per rank." },
-        { 13, kBranchWings, 2, 3, E_BoostAdd,         0.08f, "Iron Wings",
+        { 13, kBranchWings, 3, 3, E_BoostAdd,         0.08f, "Iron Wings",
           "Each boost adds 8% more speed per rank." },
-        { 15, kBranchWings, 3, 3, E_ClimbDecel,       0.40f, "Rising Current",
-          "A climb keeps 40% more of its entered speed per rank." },
-        { 14, kBranchWings, 4, 1, E_Feel,            -0.25f, "Smoothed Plumage",
-          "Dive shake 25% quieter per rank, speed motes 30% brighter." },
+        { 15, kBranchWings, 4, 1, E_ClimbDecel,       0.40f, "Rising Current",
+          "A climb keeps 40% more of its entered speed." },
     };
 
     constexpr int kTalentCount = static_cast<int>(sizeof(kTalents) / sizeof(kTalents[0]));
@@ -206,7 +206,7 @@ namespace
         bool   enabled        = true;
         uint32 maxPoints      = 12;     // lifetime cap: 12 points is a fully ranked 10-point branch plus 2
         float  baseYards      = 500.0f; // yards of flight for the first point
-        float  yardStep       = 0.33f;  // each point after the first needs 33% more than the one before
+        float  yardStep       = 1.00f;  // each point after the first needs twice the yards of the one before
         uint32 maxPointsPerMinute = 4;  // rolling-window cap; 0 disables (an AFK orbit is free)
         uint32 flushMs        = 20000;  // how often a dirty progress map is written back
         float  diveAccrual    = 1.5f;   // yards count this much more while diving -- diving pays best
@@ -234,14 +234,14 @@ namespace
                    ranks[index] >= static_cast<int>(kTalents[index].maxRank);
         }
 
-        // Rows open top down, and only the talents of the row above matter: a row is done when every
-        // talent in it is at full rank, which is the same as "the row's one findable talent is full".
-        bool RowDone(int branch, uint8 row) const
+        // Tiers open top down, and only the talents of the tier above matter: a tier is done when every
+        // talent in it is at full rank, which is the same as "the tier's one findable talent is full".
+        bool TierDone(int branch, uint8 tier) const
         {
             bool any = false;
             for (int i = 0; i < kTalentCount; ++i)
             {
-                if (kTalents[i].branch != branch || kTalents[i].row != row)
+                if (kTalents[i].branch != branch || kTalents[i].tier != tier)
                     continue;
                 any = true;
                 if (!AtMax(i))
@@ -878,7 +878,7 @@ namespace
     }
 
     // Every write validates in this order: a loaded progress row, the id, the rank ceiling, the
-    // row's pick, the rows above it, the lifetime cap, then the derived unspent count -- which is
+    // tier's pick, the tiers above it, the lifetime cap, then the derived unspent count -- which is
     // what makes a forged message cost exactly what a real one would.
     void HandleTalentLearn(Player* player, uint64 guid, int talentId)
     {
@@ -906,19 +906,19 @@ namespace
             SendTalentRefusal(player, "max-rank");
             return;
         }
-        // Only one talent of a (branch, row) group may hold a rank: this is the row-2 pick. An empty
+        // Only one talent of a (branch, tier) group may hold a rank: this is the tier-2 pick. An empty
         // rival is not a refusal, it is an ordinary investment; a ranked rival needs a refund first.
         for (int i = 0; i < kTalentCount; ++i)
-            if (i != index && kTalents[i].branch == t.branch && kTalents[i].row == t.row &&
+            if (i != index && kTalents[i].branch == t.branch && kTalents[i].tier == t.tier &&
                 p.tree.ranks[i] > 0)
             {
-                SendTalentRefusal(player, "row-taken");
+                SendTalentRefusal(player, "tier-taken");
                 return;
             }
-        for (uint8 r = 1; r < t.row; ++r)
-            if (!p.tree.RowDone(t.branch, r))
+        for (uint8 r = 1; r < t.tier; ++r)
+            if (!p.tree.TierDone(t.branch, r))
             {
-                SendTalentRefusal(player, "row-locked");
+                SendTalentRefusal(player, "tier-locked");
                 return;
             }
         if (p.points >= g_talentCfg.maxPoints)
@@ -942,10 +942,9 @@ namespace
 
     // Respec: refund one branch ("b1".."b3", or a legacy "1".."3") or the whole tree ("A"). Free
     // unless Talents.RespecCost is set. A branch is the only scope that can be refunded on its own: a
-    // single row cannot, because a row below it only opens on it being full, and refunding one talent
-    // of a row-2 pick would leave the group half-picked. Every refunded point returns to the derived
-    // unspent count. The argument is parsed strictly -- a malformed one is refused, never defaulted,
-    // because "refund everything" is the one destructive branch and must not be the fallback.
+    // single tier cannot, because a tier below it only opens on it being full, and refunding one talent
+    // of a tier-2 pick would leave the group half-picked. The argument is parsed strictly -- a malformed
+    // one is refused, never defaulted, because "refund everything" is the one destructive path.
     void HandleTalentRefund(Player* player, uint64 guid, const std::string& what)
     {
         auto it = g_progress.find(guid);
@@ -1564,10 +1563,10 @@ public:
         // module runs with no talent key present at all.
         TalentConfig tc;
         tc.enabled        = sConfigMgr->GetOption<bool>("Talents.Enable", true);
-        // The earning curve: the first point costs Talents.BaseYards, each one after it costs 33%
-        // more than the point before. 500, 665, 884 ... yd, 12 points, about 24,600 yd in total.
+        // The earning curve: the first point costs Talents.BaseYards, each one after it costs
+        // Talents.YardStep more than the point before (1.0 = twice as much).
         tc.baseYards      = sConfigMgr->GetOption<float>("Talents.BaseYards", 500.0f);
-        tc.yardStep       = sConfigMgr->GetOption<float>("Talents.YardStep", 0.33f);
+        tc.yardStep       = sConfigMgr->GetOption<float>("Talents.YardStep", 1.0f);
         tc.maxPoints      = sConfigMgr->GetOption<uint32>("Talents.MaxPoints", 12);
         tc.maxPointsPerMinute = sConfigMgr->GetOption<uint32>("Talents.MaxPointsPerMinute", 4);
         tc.respecCost     = sConfigMgr->GetOption<uint32>("Talents.RespecCost", 0);
