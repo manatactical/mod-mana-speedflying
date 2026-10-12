@@ -189,10 +189,10 @@ ManaSpeedFlying.BoostCarryPct = 0.50
 #                     pull-out curve. Chained or banked stacks cannot buy more than one BoostAdd of
 #                     glide. Lower it to make a boost bleed off faster (less time at boost speed);
 #                     1.0 restores the old behaviour where a boost paid a whole GlideMs.
-#        Default:     0.60
+#        Default:     0.70
 #
 
-ManaSpeedFlying.BoostGlidePct = 0.60
+ManaSpeedFlying.BoostGlidePct = 0.70
 
 #
 #    ManaSpeedFlying.BoostMaxStacks

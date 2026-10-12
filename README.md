@@ -108,7 +108,7 @@ ManaSpeedFlying.BoostSpeed   = 16.0   ; 1600%: hard boost ceiling (raised to the
                                      ; speed if set lower)
 ManaSpeedFlying.BoostFadeMs  = 4000   ; how fast the burst bleeds back to the state speed
 ManaSpeedFlying.BoostCarryPct = 0.50  ; fraction of the boost folded into the glide
-ManaSpeedFlying.BoostGlidePct = 0.60  ; fraction of GlideMs a boost's carry may spend
+ManaSpeedFlying.BoostGlidePct = 0.70  ; fraction of GlideMs a boost's carry may spend
 ManaSpeedFlying.BoostMaxStacks  = 3   ; 0..3, recharged on a timer
 ManaSpeedFlying.StackIntervalMs     = 9000 ; normal-flight stack recharge
 ManaSpeedFlying.StackDiveIntervalMs = 3000 ; diving stack recharge
@@ -134,7 +134,7 @@ stacks can be chained into one bigger burst. `BoostFadeMs` is how long the burst
 to the glide the mount already had, and `BoostCarryPct` folds a slice of every boost into the
 ordinary glide (it decays on the glide curve), so a boost is still felt seconds after the
 burst is gone. `BoostGlidePct` caps how much glide that slice may buy: a full `BoostAdd` of carry
-buys `BoostGlidePct` of the ordinary `GlideMs` (0.6 by default, so a boost sheds before the 9 s
+buys `BoostGlidePct` of the ordinary `GlideMs` (0.7 by default, so a boost sheds before the 9 s
 stack recharge instead of keeping the mount boosted all the time), a boost that lands on a
 running glide extends that glide by only its own carry rather than restarting the long pull-out
 curve, and chained or banked stacks cannot buy more than one boost's worth. The carried speed also

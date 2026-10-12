@@ -75,7 +75,7 @@ namespace
         float  boostSpeed   = 16.0f; // 1600%: hard ceiling a boost may lift the speed to
         uint32 boostFadeMs  = 4000;  // how fast a boost's added speed bleeds back to the state speed
         float  boostCarryPct = 0.50f; // fraction of a boost folded into the glide to outlast the fade
-        float  boostGlidePct = 0.60f; // fraction of the ordinary glide a boost's carried speed may buy
+        float  boostGlidePct = 0.70f; // fraction of the ordinary glide a boost's carried speed may buy
         int    boostStacks  = 3;     // most boost stacks the button can hold
         uint32 stackMs      = 9000;  // ms between boost stacks in normal flight
         uint32 stackDiveMs  = 3000;  // ms between boost stacks while diving
@@ -675,7 +675,7 @@ public:
         cfg.boostSpeed   = sConfigMgr->GetOption<float>("ManaSpeedFlying.BoostSpeed", 16.0f);
         cfg.boostFadeMs  = sConfigMgr->GetOption<uint32>("ManaSpeedFlying.BoostFadeMs", 4000);
         cfg.boostCarryPct = sConfigMgr->GetOption<float>("ManaSpeedFlying.BoostCarryPct", 0.50f);
-        cfg.boostGlidePct = sConfigMgr->GetOption<float>("ManaSpeedFlying.BoostGlidePct", 0.60f);
+        cfg.boostGlidePct = sConfigMgr->GetOption<float>("ManaSpeedFlying.BoostGlidePct", 0.70f);
         cfg.boostStacks  = sConfigMgr->GetOption<int>("ManaSpeedFlying.BoostMaxStacks", 3);
         cfg.stackMs      = sConfigMgr->GetOption<uint32>("ManaSpeedFlying.StackIntervalMs", 9000);
         cfg.stackDiveMs  = sConfigMgr->GetOption<uint32>("ManaSpeedFlying.StackDiveIntervalMs", 3000);
