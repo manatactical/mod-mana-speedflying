@@ -1,14 +1,14 @@
 /*
  * mod-mana-speedflying: vary a flying mount's speed with its flight state.
  *
- * Server-side companion to the client's wxl-mount-anim module. That module already works out the
+ * Server-side companion to the client's wxl-mana-speedflying module. That module already works out the
  * state (climbing / leveling / diving) and whether the mount carries the AdvFly clips, so it
  * says so directly: it whispers an addon message with the "WXLMS" prefix, and this module blends the
  * mount's flight speed toward the speed the state calls for. No server-side guesswork and no mount
  * list -- a mount the client does not drive with AdvFly reports '0' and its speed is left alone.
  *
  * Protocol, an addon whisper:  "WXLMS\t<advfly:0|1><state:L|C|D|H>"
- *   advfly  '1' = the mount is one wxl-mount-anim drives (AdvFly clips), '0' = leave the speed alone
+ *   advfly  '1' = the mount is one wxl-mana-speedflying drives (AdvFly clips), '0' = leave the speed alone
  *   state   C climb, D dive, H hovering, L level / strafe / backward
  *
  * The server answers with its own configured speeds so the client scales its bar, particles and shake
@@ -75,6 +75,7 @@ namespace
         float  boostSpeed   = 16.0f; // 1600%: hard ceiling a boost may lift the speed to
         uint32 boostFadeMs  = 4000;  // how fast a boost's added speed bleeds back to the state speed
         float  boostCarryPct = 0.50f; // fraction of a boost folded into the glide to outlast the fade
+        float  boostGlidePct = 0.60f; // fraction of the ordinary glide a boost's carried speed may buy
         int    boostStacks  = 3;     // most boost stacks the button can hold
         uint32 stackMs      = 9000;  // ms between boost stacks in normal flight
         uint32 stackDiveMs  = 3000;  // ms between boost stacks while diving
@@ -138,6 +139,18 @@ namespace
         // abs(): a caller may pass a signed distance, and a negative one cast to uint32 wraps to a
         // multi-day stall instead of a transition.
         return static_cast<uint32>(static_cast<float>(baseMs) * std::fabs(dist) / reference);
+    }
+
+    // Glide a boost's carried speed buys: a fraction (BoostGlidePct) of the ordinary glide, so a full
+    // BoostAdd of carry no longer pays the whole GlideMs and outlasts the next stack recharge. The
+    // carry is capped at one BoostAdd, so stacks banked over a long climb cannot buy an unbounded
+    // glide when they are finally released.
+    uint32 BoostCarryMs(float carry)
+    {
+        if (carry > g_cfg.boostAdd)
+            carry = g_cfg.boostAdd;
+        return ScaledMs(static_cast<uint32>(static_cast<float>(g_cfg.glideMs) * g_cfg.boostGlidePct),
+                        carry, g_cfg.boostAdd);
     }
 
     // Transition length for entering `next` from the state we are in.
@@ -214,29 +227,39 @@ namespace
         const float add = boosted - applied;
         float carry     = add * g_cfg.boostCarryPct;
 
+        // A boost may raise the *base* glide only up to the fastest normal state (the dive ceiling);
+        // speed past that stays in the fading burst offset instead. Without this, a boost spent at or
+        // near the dive ceiling pushed the base above it, and a pull-out glide is scaled by the speed
+        // being shed, so that one boost stretched the whole following glide -- the HUD's boost band
+        // stayed lit for tens of seconds and the boost read as never emptying. Keeping the overrun in
+        // the short burst means it fades on BoostFadeMs, not on the ordinary glide.
+        const float room = std::max(0.0f, MaxRate() - st.current);
+        if (carry > room)
+            carry = room;
+
         // Replenish part of the boost as ordinary glide time. A climb is not a glide, so its carry
-        // is banked: folding it into the running transition would restart that transition on the
-        // long GlideMs EaseIn curve and hold speed past the climb. SetTarget releases the banked
-        // carry when the climb ends -- on leveling out it rides its own long glide, so the retained
-        // half becomes glide time instead of emptying in a few seconds.
+        // is banked: folding it into the running climb would hold speed past the climb. SetTarget
+        // releases the banked carry when the climb ends -- on leveling out it rides its own glide, so
+        // the retained half becomes glide time instead of emptying in a few seconds.
         if (carry > 0.0f && st.motion == Motion::Climb)
         {
             st.pendingCarry += carry;
         }
-        // Otherwise raise the base transition and restart its fade from there, so the carry decays
-        // on the long dive-glide curve, not the short boost one. Only fold it when the base is
-        // decelerating (current at or above target); while a dive is still accelerating, folding it
-        // would stall the climb to DiveSpeed, so the whole boost stays in the burst offset instead.
-        // The distance is abs()'d: an early-dive fold could otherwise be negative and wrap the
-        // duration to a multi-day stall.
+        // Otherwise raise the base transition and extend it only by what the carried speed itself
+        // needs to shed -- a fraction of the ordinary glide -- instead of restarting the long
+        // pull-out curve, so a boost lands back on the glide it had rather than outlasting the next
+        // stack. The running transition keeps its own elapsed time and remaining span, so a boost
+        // taken mid-glide does not reset the ease-in to the part that holds speed longest. Only fold
+        // it when the base is decelerating (current at or above target); while a dive is still
+        // accelerating, folding it would stall the climb to DiveSpeed, so the whole boost stays in
+        // the burst offset instead.
         else if (carry > 0.0f && st.current >= st.target)
         {
+            const uint32 left = st.elapsed < st.duration ? st.duration - st.elapsed : 0;
             st.start    = st.current + carry;
             st.current  = st.start;
             st.target   = RateFor(st.motion);
-            st.elapsed  = 0;
-            st.duration = ScaledMs(g_cfg.glideMs, std::fabs(st.start - st.target),
-                                   std::fabs(g_cfg.diveSpeed - g_cfg.levelSpeed));
+            st.duration = st.elapsed + left + BoostCarryMs(carry);
             st.curve    = Curve::EaseIn;
         }
         else
@@ -293,23 +316,26 @@ namespace
         {
             if (m == Motion::Level)
             {
-                // Fold the fading burst into the base: the transition starts from the live speed, so
-                // there is no upward step. Merging the offset here lets it bleed on the glide curve
-                // instead of running as a second, separately-fading layer below.
+                // Merge the fading burst into the base so the transition starts from the live speed
+                // (no upward step), but only up to the fastest normal state (the dive ceiling):
+                // anything past that is speed no plain state reaches, so it stays a fading burst
+                // instead of raising the base and stretching the glide this level-out runs.
                 const float live = std::min(g_cfg.boostSpeed, st.current + st.boostOffset);
-                st.current       = live;
-                st.boostStart    = 0.0f;
-                st.boostOffset   = 0.0f;
+                const float base = std::min(live, std::max(MaxRate(), st.current));
+                st.current       = base;
+                st.boostStart    = live - base;
+                st.boostOffset   = live - base;
                 st.boostElapsed  = 0;
-                st.boostDuration = 0;
-                foldedCarry      = std::min(st.pendingCarry, std::max(0.0f, g_cfg.boostSpeed - live));
+                st.boostDuration = st.boostStart > 0.0f ? g_cfg.boostFadeMs : 0;
+                foldedCarry      = std::min(st.pendingCarry, std::max(0.0f, g_cfg.boostSpeed - base));
             }
             else
             {
                 // A pull-out that still carries dive speed keeps its higher current speed; everything
                 // else keeps the banked half folded into the new transition.
                 const float base = st.current;
-                foldedCarry = std::min(st.pendingCarry, std::max(0.0f, g_cfg.boostSpeed - base));
+                foldedCarry = std::min(st.pendingCarry,
+                                       std::max(0.0f, std::max(MaxRate(), base) - base));
                 st.current = base + foldedCarry;
             }
             st.pendingCarry = 0.0f;
@@ -320,14 +346,14 @@ namespace
         st.elapsed  = 0;
         st.duration = DurationFor(st, m);
         st.curve    = CurveFor(st, m);
-        // A banked carry pays for its own glide: a full BoostAdd of carry buys the full GlideMs, a
-        // smaller carry proportionally less, so the retained speed is not dumped in three or four
-        // seconds. Only when the mount is actually shedding speed -- an eased rise from below the
-        // level speed would just delay settling, not carry momentum. Keep whichever glide is longer,
-        // so a pull-out that still carries dive speed is never shortened.
+        // A banked carry pays for its own glide: a full BoostAdd of carry buys BoostGlidePct of the
+        // ordinary GlideMs, a smaller carry proportionally less, so the retained speed is not dumped
+        // in three or four seconds. Only when the mount is actually shedding speed -- an eased rise
+        // from below the level speed would just delay settling, not carry momentum. Keep whichever
+        // glide is longer, so a pull-out that still carries dive speed is never shortened.
         if (m == Motion::Level && foldedCarry > 0.0f && g_cfg.boostAdd > 0.0f && st.start > st.target)
         {
-            const uint32 carryDur = ScaledMs(g_cfg.glideMs, foldedCarry, g_cfg.boostAdd);
+            const uint32 carryDur = BoostCarryMs(foldedCarry);
             if (carryDur > st.duration)
             {
                 st.duration = carryDur;
@@ -370,7 +396,7 @@ public:
         : PlayerScript("ManaSpeedFlyingPlayer",
                        { PLAYERHOOK_ON_BEFORE_SEND_CHAT_MESSAGE, PLAYERHOOK_ON_UPDATE, PLAYERHOOK_ON_LOGOUT }) {}
 
-    // The client link. wxl-mount-anim senders are the only ones that matter; everything else on the
+    // The client link. wxl-mana-speedflying senders are the only ones that matter; everything else on the
     // addon channel is left as the core received it. The channel is untrusted: a '1' link is only
     // applied to a flying player and a boost off the ground is dropped, but the server cannot tell a
     // real client from a forged message -- it only ever sets a flight speed.
@@ -649,6 +675,7 @@ public:
         cfg.boostSpeed   = sConfigMgr->GetOption<float>("ManaSpeedFlying.BoostSpeed", 16.0f);
         cfg.boostFadeMs  = sConfigMgr->GetOption<uint32>("ManaSpeedFlying.BoostFadeMs", 4000);
         cfg.boostCarryPct = sConfigMgr->GetOption<float>("ManaSpeedFlying.BoostCarryPct", 0.50f);
+        cfg.boostGlidePct = sConfigMgr->GetOption<float>("ManaSpeedFlying.BoostGlidePct", 0.60f);
         cfg.boostStacks  = sConfigMgr->GetOption<int>("ManaSpeedFlying.BoostMaxStacks", 3);
         cfg.stackMs      = sConfigMgr->GetOption<uint32>("ManaSpeedFlying.StackIntervalMs", 9000);
         cfg.stackDiveMs  = sConfigMgr->GetOption<uint32>("ManaSpeedFlying.StackDiveIntervalMs", 3000);
@@ -663,6 +690,7 @@ public:
                                     std::max(cfg.climbSpeed, std::max(cfg.levelSpeed, cfg.diveSpeed)));
         cfg.boostStacks  = std::max(0, std::min(cfg.boostStacks, 3));
         cfg.boostCarryPct = std::max(0.0f, std::min(cfg.boostCarryPct, 1.0f));
+        cfg.boostGlidePct = std::max(0.0f, std::min(cfg.boostGlidePct, 1.0f));
         if (!cfg.boostFadeMs) cfg.boostFadeMs = 1;
         if (!cfg.stackMs) cfg.stackMs = 1;
         if (!cfg.stackDiveMs) cfg.stackDiveMs = 1;

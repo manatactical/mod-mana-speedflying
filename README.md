@@ -1,7 +1,7 @@
 # mod-mana-speedflying
 
 An AzerothCore module that varies a flying mount's speed with how it is flying, as a server-side
-companion to the client's **wxl-mount-anim** module:
+companion to the client's **wxl-mana-speedflying** module:
 
 | state      | speed |
 |------------|-------|
@@ -9,7 +9,7 @@ companion to the client's **wxl-mount-anim** module:
 | leveling   | 280%  |
 | diving     | 800%  |
 
-`wxl-mount-anim` already animates the mount as climbing / gliding / diving, so the two agree: wings
+`wxl-mana-speedflying` already animates the mount as climbing / gliding / diving, so the two agree: wings
 beat slowly on the way up, the glide rushes on the way down. The speed does not snap between states:
 
 - **Diving** accelerates. The speed builds into `DiveSpeed` over `DiveMs`; it kicks off the line
@@ -38,7 +38,7 @@ WXLMS<TAB><advfly:0|1><state:L|C|D|H|B>
 ```
 
 - `advfly` is `1` only for mounts whose model carries the retail **AdvFly** clips -- exactly the
-  mounts `wxl-mount-anim` drives with AdvFly. This is what keeps the speed change off stock mounts
+  mounts `wxl-mana-speedflying` drives with AdvFly. This is what keeps the speed change off stock mounts
   and druid flight forms, with no server-side mount list. A `0` message tells the server to restore
   the mount's own speed and stand down.
 - `state` is `C` climb, `D` dive, `H` hovering, `L` level / strafe / backward, and `B` the
@@ -71,12 +71,12 @@ locally in between, so a spent or newly granted stack does not restart the bar o
 older server that omits the two fields leaves the client running its own clock.) The reply goes out
 on the first link message and again every few seconds (which also recovers a client UI reload), so
 changing `ManaSpeedFlying.DiveSpeed` on the server is enough -- no matching edit in
-`wxl-mount-anim.ini` is needed. If the module is not installed, the client falls back to its own
+`wxl-mana-speedflying.ini` is needed. If the module is not installed, the client falls back to its own
 `GlideSpeedPct` / `MaxSpeedPct` defaults.
 
 ## Requirements
 
-- Client: `wxl-mount-anim` with `ServerLink=1` in `wxl-mount-anim.ini` (default on).
+- Client: `wxl-mana-speedflying` with `ServerLink=1` in `wxl-mana-speedflying.ini` (default on).
 - Server: `CONFIG_ADDON_CHANNEL` enabled (AzerothCore default) so the addon whisper is accepted.
 
 ## Install
@@ -108,6 +108,7 @@ ManaSpeedFlying.BoostSpeed   = 16.0   ; 1600%: hard boost ceiling (raised to the
                                      ; speed if set lower)
 ManaSpeedFlying.BoostFadeMs  = 4000   ; how fast the burst bleeds back to the state speed
 ManaSpeedFlying.BoostCarryPct = 0.50  ; fraction of the boost folded into the glide
+ManaSpeedFlying.BoostGlidePct = 0.60  ; fraction of GlideMs a boost's carry may spend
 ManaSpeedFlying.BoostMaxStacks  = 3   ; 0..3, recharged on a timer
 ManaSpeedFlying.StackIntervalMs     = 9000 ; normal-flight stack recharge
 ManaSpeedFlying.StackDiveIntervalMs = 3000 ; diving stack recharge
@@ -131,13 +132,21 @@ boost button (can be used while climbing, diving or gliding level) spends one st
 default) to the mount's current speed, up to the `BoostSpeed` ceiling. There is no cooldown, so held
 stacks can be chained into one bigger burst. `BoostFadeMs` is how long the burst takes to bleed back
 to the glide the mount already had, and `BoostCarryPct` folds a slice of every boost into the
-ordinary glide (it decays on the long `GlideMs` curve), so a boost is still felt seconds after the
-burst is gone. A boost spent while climbing has nowhere to fold *during* the climb -- a climb is not
+ordinary glide (it decays on the glide curve), so a boost is still felt seconds after the
+burst is gone. `BoostGlidePct` caps how much glide that slice may buy: a full `BoostAdd` of carry
+buys `BoostGlidePct` of the ordinary `GlideMs` (0.6 by default, so a boost sheds before the 9 s
+stack recharge instead of keeping the mount boosted all the time), a boost that lands on a
+running glide extends that glide by only its own carry rather than restarting the long pull-out
+curve, and chained or banked stacks cannot buy more than one boost's worth. The carried speed also
+never lifts the base glide above `DiveSpeed`: anything past it is speed no plain state reaches, so
+it stays in the short burst and fades on `BoostFadeMs` -- a boost spent at the dive ceiling empties
+on the fade instead of stretching the pull-out that follows. A boost spent while climbing has
+nowhere to fold *during* the climb -- a climb is not
 a glide -- so its carried half is banked, the other half is the short burst, and the speed settles
 back to `ClimbSpeed` on the climb's own transition. The moment you level out, the banked half is
-released onto a long ease-in glide sized by the carry: a full `BoostAdd` of carry buys the full
-`GlideMs`, a smaller carry proportionally less. So the speed you built climbing does not empty in a
-few seconds.
+released onto an ease-in glide sized by the carry: a full `BoostAdd` of carry buys `BoostGlidePct`
+of a `GlideMs`, a smaller carry proportionally less. So the speed you built climbing does not empty
+in a few seconds.
 
 ## Notes
 

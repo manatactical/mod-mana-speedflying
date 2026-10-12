@@ -1,7 +1,7 @@
 #
 # mod-mana-speedflying configuration
 #
-# Server-side companion to the client's wxl-mount-anim module. That module detects the flight state
+# Server-side companion to the client's wxl-mana-speedflying module. That module detects the flight state
 # (climbing / leveling / diving) and already knows whether the mount carries the retail AdvFly
 # clips, so it whispers an addon message (prefix "WXLMS") to this module, which blends the mount's
 # flight speed to match. Nothing is guessed on the server, and only mounts the client drives with
@@ -17,7 +17,7 @@
 #
 #    ManaSpeedFlying.Enable
 #        Description: Enable the module. The client link still requires ServerLink=1 in
-#                     wxl-mount-anim.ini on the client.
+#                     wxl-mana-speedflying.ini on the client.
 #        Default:     1 - Enabled
 #                     0 - Disabled
 #
@@ -169,13 +169,30 @@ ManaSpeedFlying.BoostFadeMs = 4000
 #                     pure short burst. A boost spent while climbing banks its carried half (a climb
 #                     is not a glide, so there is nothing to fold into *during* the climb); the
 #                     moment you level out, the still-running burst is folded into the glide and
-#                     the banked half is spent as extra glide time -- a full BoostAdd of carry gets
-#                     the full GlideMs -- so the built-up speed does not empty in three or four
-#                     seconds, and the bar glides out instead of bumping up first.
+#                     the banked half is spent as extra glide time (a full BoostAdd of carry gets
+#                     BoostGlidePct of a GlideMs) -- so the built-up speed does not empty in three or
+#                     four seconds, and the bar glides out instead of bumping up first. The carried
+#                     speed never lifts the base glide above DiveSpeed (the fastest state): any boost
+#                     speed past that stays in the short fade, so a boost spent at or near the dive
+#                     ceiling empties on BoostFadeMs instead of stretching the pull-out that follows.
 #        Default:     0.50
 #
 
 ManaSpeedFlying.BoostCarryPct = 0.50
+
+#
+#    ManaSpeedFlying.BoostGlidePct
+#        Description: Fraction (0..1) of the ordinary dive glide (GlideMs) that a boost's carried
+#                     speed is allowed to buy. It exists so a boost empties before the next stack
+#                     recharges: a full BoostAdd of carry buys this fraction of GlideMs, not the
+#                     whole thing, and the glide a boost lands on is not restarted on the full
+#                     pull-out curve. Chained or banked stacks cannot buy more than one BoostAdd of
+#                     glide. Lower it to make a boost bleed off faster (less time at boost speed);
+#                     1.0 restores the old behaviour where a boost paid a whole GlideMs.
+#        Default:     0.60
+#
+
+ManaSpeedFlying.BoostGlidePct = 0.60
 
 #
 #    ManaSpeedFlying.BoostMaxStacks
