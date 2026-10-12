@@ -222,3 +222,98 @@ ManaSpeedFlying.StackIntervalMs = 9000
 #
 
 ManaSpeedFlying.StackDiveIntervalMs = 3000
+
+########################################
+# Talent tree
+########################################
+
+#
+#    Talents.Enable
+#        Description: Enable the speedflying talent tree. Points are earned per character by flying
+#                     on an AdvFly mount and spent on three branches (Dive, Glide, Wings), five
+#                     talents each. With this off, no points are earned or spent and the panel's
+#                     learn and refund requests are refused.
+#        Default:     1 - Enabled
+#                     0 - Disabled
+#
+
+Talents.Enable = 1
+
+#
+#    Talents.YardsPerPoint
+#        Description: Yards of flight that earn one talent point. A dive counts as 1.5x its distance
+#                     (fixed, so diving pays best). Glide branch talent 7 (Slipstream, 3 ranks) earns
+#                     points 12% faster per rank. Lower this to make the tree faster to fill.
+#        Default:     250
+#
+
+Talents.YardsPerPoint = 250.0
+
+#
+#    Talents.MaxPointsPerMinute
+#        Description: Most points one character may earn in a rolling minute. Without it an AFK orbit
+#                     is the whole economy. The window decays on each rollover rather than resetting,
+#                     so a boundary is not a cliff. 0 removes the cap.
+#        Default:     4
+#
+
+Talents.MaxPointsPerMinute = 4
+
+#
+#    Talents.RespecCost
+#        Description: Copper charged for one respec (a single branch or the whole tree). The default
+#                     is 0, so a respec is free and instant. A character that cannot afford it is
+#                     refused, and nothing is refunded.
+#        Default:     0
+#
+
+Talents.RespecCost = 0
+
+#
+#    ManaSpeedFlying.SpeedCapPct
+#        Description: Ceiling a talent may raise the *base* state speeds to, as a percentage of base
+#                     run speed: 1600.0 = 1600%. Only Dive talent 3 (Terminal Velocity) raises a
+#                     state speed, and the boost ceiling is derived from the fastest of the three
+#                     states, so this one cap bounds both. It is applied to ClimbSpeed, LevelSpeed
+#                     and DiveSpeed before that derivation -- clamping the boost ceiling alone would
+#                     be silently undone by the max(). Raising this is the difference between a
+#                     160%-dive build and an uncapped one.
+#        Default:     1600.0
+#
+
+ManaSpeedFlying.SpeedCapPct = 1600.0
+
+########################################
+# The talents themselves (no keys)
+########################################
+#
+# Every talent effect strength follows one rule: the *base* value is the existing
+# ManaSpeedFlying.* key above, and the talent is a hardcoded percentage of it. "Steep Descent" is
+# -8% of ManaSpeedFlying.DiveMs per rank, so it is tuned through DiveMs and adds no key of its own.
+# The list below records which key each talent moves, for operators raising a base value.
+#
+#   id  branch  tier  name                 max  effect
+#    1  Dive    T1    Steep Descent          3  -8%  ManaSpeedFlying.DiveMs per rank
+#    2  Dive    T1    Held Breath            2  +15% ManaSpeedFlying.ClimbDecelMs per rank
+#    3  Dive    T2    Terminal Velocity      3  +6%  ManaSpeedFlying.DiveSpeed per rank (cap above)
+#    4  Dive    T2    Shallow Pull           2  +50% dive speed carried out of a shallow pull
+#    5  Dive    T3    Aftershock             1  releasing the boost key into a dive lands at once
+#    6  Glide   T1    Long Glide             3  +12% ManaSpeedFlying.GlideMs per rank
+#    7  Glide   T1    Slipstream             3  +12% Talents.YardsPerPoint earning per rank
+#    8  Glide   T2    Banked Momentum        2  +10 points of ManaSpeedFlying.BoostCarryPct per rank
+#    9  Glide   T2    Twin Vault             1  +1 ManaSpeedFlying.BoostMaxStacks
+#   10  Glide   T3    Skyward Path           2  a glide may end above ManaSpeedFlying.LevelSpeed
+#   11  Wings   T1    Diving Wings           3  -10% ManaSpeedFlying.StackDiveIntervalMs per rank
+#   12  Wings   T1    Steady Wings           3  -8%  ManaSpeedFlying.StackIntervalMs per rank
+#   13  Wings   T2    Iron Wings             2  +8%  ManaSpeedFlying.BoostAdd per rank
+#   14  Wings   T2    Smoothed Plumage       2  client-side only: dive shake, speed-mote density
+#   15  Wings   T3    Rising Current         3  +40% a climb keeps its entered speed, per rank
+#
+# Tier 2 in a branch opens once 1 point is spent in it, tier 3 once 3 points are. A talent's
+# prerequisite (shown in the panel as a locked button) must be at its full rank first: Terminal
+# Velocity and Shallow Pull need Held Breath, Skyward Path needs Banked Momentum, Iron Wings and
+# Smoothed Plumage need Diving Wings, Rising Current needs Iron Wings.
+#
+# Held Breath, Aftershock and Rising Current all scale ClimbDecelMs. Their ranks are summed into one
+# multiplier, not compounded one after the other.
+<!--x-->

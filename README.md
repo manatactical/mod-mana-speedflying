@@ -74,6 +74,39 @@ changing `ManaSpeedFlying.DiveSpeed` on the server is enough -- no matching edit
 `wxl-mana-speedflying.ini` is needed. If the module is not installed, the client falls back to its own
 `GlideSpeedPct` / `MaxSpeedPct` defaults.
 
+## The talent protocol -- `WXLTT`
+
+The tree rides a **second prefix**, so the `WXLMS` link parser is untouched and an older client keeps
+working against this server. Append only; never reorder or renumber a field.
+
+```
+client -> server:  WXLTT<TAB>W<TAB><talentId>   learn one rank
+                   WXLTT<TAB>R<TAB><1|2|3|A>    refund a branch, or A for everything
+                   WXLTT<TAB>Q                  request the current tree
+	server -> client:  WXLTT<TAB>T<TAB><points>,<spent>,<unspent>[,<id>:<rank>,...]
+                   WXLTT<TAB>F<TAB><reason>     a refusal, echoed for the panel
+```
+
+The tally's trailing `id:rank` pairs are a list, so a new talent needs no protocol change, and the
+`F` reply means a refusal is always answered rather than silently dropped -- that is what stops the
+panel drifting out of step with the server. A tally is sent after every `W`, `R` and `Q`.
+
+Every write validates in this order, inside one lock: config enabled, the player is on a mount, the
+character has a progress row, the talent id is known, `rank + 1 <= maxRank`, the prerequisite is at
+full rank, the tier is unlocked, and only then is the derived unspent count checked. A forged learn
+message therefore costs exactly what a real one would.
+
+D5 **Aftershock** is the one client→server message that is not the tree itself: it reuses the
+`WXLMS` link's state byte with a new letter `X`, sent when the boost key comes up while a boost is
+still live. The server checks the rank itself, so an `X` from a character without the talent does
+nothing, and matches on count exactly like a real one. An older server that does not know `X` falls
+back to its `default:` branch and treats it as a plain level state -- degraded, not broken.
+
+Only client-side talents need a wire field. W14 (Smoothed Plumage) is feel-only, so its ranks ride
+the tally and the client scales its own dive shake and mote density; every other talent is applied
+entirely server-side and needs nothing new, which is what keeps the protocol append-only instead of
+adding a field per talent.
+
 ## Requirements
 
 - Client: `wxl-mana-speedflying` with `ServerLink=1` in `wxl-mana-speedflying.ini` (default on).
@@ -85,6 +118,53 @@ Copy the `mod-mana-speedflying` folder into your AzerothCore `modules/` director
 worldserver. The build copies `mod-mana-speedflying.conf.dist` into `configs/`; rename it to
 `mod-mana-speedflying.conf` and edit the values there. The module is picked up automatically (no
 `CMakeLists.txt` is needed on current AzerothCore).
+
+## The talent tree
+
+Each character earns **points** by flying on an AdvFly mount, and spends them on 15 talents in three
+branches of five, one point per rank. The server owns the tree: the client only renders it. Points
+are `yards / Talents.YardsPerPoint`, dive-weighted (a dive counts 1.5x its distance), capped per
+rolling minute by `Talents.MaxPointsPerMinute` (`0` removes the cap). A tick covering more than 200
+yards is treated as a teleport and earns nothing.
+
+| id | branch | tier | name | ranks | effect (percentage of the key above) |
+|----|--------|------|------|-------|---------------------------------------|
+| 1 | Dive | T1 | Steep Descent | 3 | `DiveMs` -8% per rank |
+| 2 | Dive | T1 | Held Breath | 2 | `ClimbDecelMs` +15% per rank |
+| 3 | Dive | T2 | Terminal Velocity | 3 | `DiveSpeed` +6% per rank, capped by `SpeedCapPct` |
+| 4 | Dive | T2 | Shallow Pull | 2 | a pull-out 15 degrees shallower per rank keeps its whole glide |
+| 5 | Dive | T3 | Aftershock | 1 | releasing the boost key into a dive commits the burst at once |
+| 6 | Glide | T1 | Long Glide | 3 | `GlideMs` +12% per rank |
+| 7 | Glide | T1 | Slipstream | 3 | `YardsPerPoint` +12% per rank |
+| 8 | Glide | T2 | Banked Momentum | 2 | boost carry +10 points of `BoostCarryPct` per rank |
+| 9 | Glide | T2 | Twin Vault | 1 | `BoostMaxStacks` +1 |
+| 10 | Glide | T3 | Skyward Path | 2 | a glide ends 10% above the level bar per rank, settling over 1.5 s |
+| 11 | Wings | T1 | Diving Wings | 3 | `StackDiveIntervalMs` -10% per rank |
+| 12 | Wings | T1 | Steady Wings | 3 | `StackIntervalMs` -8% per rank |
+| 13 | Wings | T2 | Iron Wings | 2 | `BoostAdd` +8% per rank |
+| 14 | Wings | T2 | Smoothed Plumage | 2 | client-side only: dive shake, speed-mote density |
+| 15 | Wings | T3 | Rising Current | 3 | `ClimbDecelMs` +40% per rank |
+
+- **Tier gate.** Tier 2 in a branch opens at 1 point spent in it, tier 3 at 2. A talent's prerequisite
+  must also be at full rank first (3 needs 1, 4 needs 1, 5 needs 3, 8 needs 6, 9 needs 6, 10 needs 8,
+  13 and 14 need 11, 15 needs 13).
+- **No effect is ever applied twice.** D2, W15 and D5 all move `ClimbDecelMs`; their ranks are summed
+  into one multiplier, not compounded. D3 is the only talent that raises a state speed, and the boost
+  ceiling is derived from the fastest state -- so `SpeedCapPct` is applied to the base states *before*
+  that derivation, or the clamp would be silently undone.
+- **Per-player, not global.** The effects live in a per-character copy of the config (`Effective cfg`),
+  rebuilt on login, on every rank bought and on every config reload; the base keys are never mutated.
+  Idle players are not walking around with the server's global speeds.
+- **Persistence.** `character_speedflying` holds lifetime points and the sub-point yard fraction;
+  `character_speedflying_talents` holds one row per unrefunded rank. Unspent points are derived
+  (`points - SUM(rank)`) and never stored, so the two cannot drift. Dirty rows are flushed on a 20 s
+  timer and on logout. Respec (`WXLTT\tR\t<1|2|3|A>`) is free by default and takes `Talents.RespecCost`
+  if set; it refuses rather than half-applies when the money is missing. Deleting a character deletes
+  both of its rows, so a recycled guid cannot inherit a tree.
+
+Points are keyed on the character's low guid (`characters.guid`, i.e. `GetGUID().GetCounter()`), and the
+module cannot add a prepared statement -- the `CharacterDatabaseStatements` enum lives in the core -- so
+the queries interpolate integers only, never a string.
 
 ## Configuration
 
@@ -112,6 +192,13 @@ ManaSpeedFlying.BoostGlidePct = 0.70  ; fraction of GlideMs a boost's carry may 
 ManaSpeedFlying.BoostMaxStacks  = 3   ; 0..3, recharged on a timer
 ManaSpeedFlying.StackIntervalMs     = 9000 ; normal-flight stack recharge
 ManaSpeedFlying.StackDiveIntervalMs = 3000 ; diving stack recharge
+ManaSpeedFlying.SpeedCapPct  = 1600.0 ; ceiling a talent may raise a base state speed to
+
+; Talent tree (see "The talent tree" below; every effect is a percentage of the key above it)
+Talents.Enable             = 1   ; master switch for earning and spending
+Talents.YardsPerPoint      = 250.0 ; yards of flight that earn one point
+Talents.MaxPointsPerMinute = 4   ; rolling-window cap; 0 = uncapped
+Talents.RespecCost         = 0   ; copper per respec; 0 = free
 ```
 
 - **BlendMs** is the time for the *whole* climb-to-dive span. The rate is linear, so a smaller

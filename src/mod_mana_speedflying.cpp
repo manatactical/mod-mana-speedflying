@@ -25,23 +25,127 @@
  * before braking hard. A climb cut short to level keeps that glide. Other hops keep the
  * span-proportional blend. If the link goes quiet for TimeoutMs, the
  * mount's own speed is restored.
+ *
+ * The talent tree rides a second addon prefix, "WXLTT", so the link parser above is untouched:
+ *
+ *   client -> server:  WXLTT\tW\t<talentId>   learn one rank
+ *                      WXLTT\tR\t<1|2|3|A>    refund a branch (or A for everything)
+ *                      WXLTT\tQ                request the tree
+ *   server -> client:  WXLTT\tT\t<points>,<spent>,<unspent>[,<id>:<rank>,...]
+ *                      WXLTT\tF\t<reason>     a refusal, echoed for the panel
+ *
+ * Points are earned per character by flying: yards travelled on an AdvFly mount while the link is
+ * up, at Talents.YardsPerPoint per whole point, capped per rolling minute. Ranks are authoritative
+ * here and the client only renders them. See the README for the talent list and the wire contract.
  */
 
 #include "Chat.h"
 #include "Common.h"
 #include "Config.h"
+#include "DatabaseEnv.h"
+#include "Log.h"
 #include "Player.h"
 #include "ScriptMgr.h"
 
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
+#include <cstring>
 #include <mutex>
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 namespace
 {
+    // --- the talent tree -----------------------------------------------------------------------
+    // The ids are the wire contract: they ride "WXLTT" as integers and key the
+    // character_speedflying_talents table. Append new talents at the end and never renumber -- a
+    // stored rank would silently move to a different talent.
+    enum Branch
+    {
+        kBranchDive = 0,
+        kBranchGlide,
+        kBranchWings,
+        kBranchCount
+    };
+
+    // Every talent scales one leaf of Config. The base value stays the existing ManaSpeedFlying.*
+    // key and the talent is a percentage of it, so a talent mints no config key of its own.
+    // D2 and W15 both scale E_ClimbDecel: their ranks are summed into one multiplier, never
+    // compounded one after the other.
+    enum Effect
+    {
+        E_DiveMs = 0,          // D1 Steep Descent
+        E_ClimbDecel,          // D2 Held Breath, D5 Aftershock, W15 Rising Current
+        E_DiveSpeed,           // D3 Terminal Velocity
+        E_ShallowPull,         // D4 Shallow Pull: degrees past 30 a pull-out may be and still keep its glide
+        E_GlideMs,             // G6 Long Glide
+        E_LevelElev,           // G10 Skyward Path: how far above LevelSpeed a glide may end
+        E_YardsPerPoint,       // G7 Slipstream
+        E_BoostCarry,          // G8 Banked Momentum
+        E_BoostStacks,         // G9 Twin Vault
+        E_StackInterval,       // W12 Steady Wings
+        E_StackDiveInterval,   // W11 Diving Wings
+        E_BoostAdd,            // W13 Iron Wings
+        E_Feel,                // W14 Smoothed Plumage (client-side only)
+        E_Count
+    };
+
+    constexpr int kEffectCount = static_cast<int>(E_Count);
+
+    struct TalentDef
+    {
+        uint16      id;
+        uint8       branch;
+        uint8       tier;     // 1..3; a tier opens once its branch holds this many points spent below it
+        uint8       maxRank;
+        uint16      prereq;   // talent that must already be at maxRank, 0 for none
+        uint8       effect;   // leaf of Config the talent scales; E_Feel is client-side only
+        float       pctPerRank;
+        const char* name;
+        const char* desc;
+    };
+
+    // Cost is 1 point per rank; "T1" means one point spent in that branch, which is what opens tier 2.
+    // Append-only, and the client panel lays itself out from these entries.
+    const TalentDef kTalents[] =
+    {
+        { 1, kBranchDive, 1, 3, 0, E_DiveMs,           -0.08f, "Steep Descent",
+          "Accelerate into a dive 8% faster per rank." },
+        { 2, kBranchDive, 1, 2, 0, E_ClimbDecel,        0.15f, "Held Breath",
+          "Hold dive speed 15% longer per rank when pulling up into a climb." },
+        { 3, kBranchDive, 2, 3, 1, E_DiveSpeed,         0.06f, "Terminal Velocity",
+          "Reach 6% more dive speed per rank." },
+        { 4, kBranchDive, 2, 2, 1, E_ShallowPull,     15.0f, "Shallow Pull",
+          "Carry 50% more dive speed per rank out of a shallow dive." },
+        { 5, kBranchDive, 3, 1, 3, E_Count,          0.0f,  "Aftershock",
+          "Abort a live boost by diving: the release is immediate." },
+        { 6, kBranchGlide, 1, 3, 0, E_GlideMs,          0.12f, "Long Glide",
+          "Glide 12% longer per rank out of a dive." },
+        { 7, kBranchGlide, 1, 3, 0, E_YardsPerPoint,    0.12f, "Slipstream",
+          "Earn flight points 12% faster per rank." },
+        { 8, kBranchGlide, 2, 2, 6, E_BoostCarry,       0.10f, "Banked Momentum",
+          "Fold 10 more points of a boost into the glide per rank." },
+        { 9, kBranchGlide, 2, 1, 6, E_BoostStacks,      0.0f,  "Twin Vault",
+          "Hold one more boost stack." },
+        { 10, kBranchGlide, 3, 2, 8, E_LevelElev,       0.10f, "Skyward Path",
+          "A glide ends 10% above the level bar per rank, then settles over 1.5 s." },
+        { 11, kBranchWings, 1, 3, 0, E_StackDiveInterval, -0.10f, "Diving Wings",
+          "Diving boost stacks recharge 10% faster per rank." },
+        { 12, kBranchWings, 1, 3, 0, E_StackInterval,  -0.08f, "Steady Wings",
+          "Boost stacks recharge 8% faster per rank." },
+        { 13, kBranchWings, 2, 2, 11, E_BoostAdd,       0.08f, "Iron Wings",
+          "Each boost adds 8% more speed per rank." },
+        { 14, kBranchWings, 2, 2, 11, E_Feel,          -0.25f, "Smoothed Plumage",
+          "Dive shake 25% quieter per rank, speed motes 15% brighter." },
+        { 15, kBranchWings, 3, 3, 13, E_ClimbDecel,     0.40f, "Rising Current",
+          "A climb keeps 40% more of its entered speed per rank." },
+    };
+
+    constexpr int kTalentCount = static_cast<int>(sizeof(kTalents) / sizeof(kTalents[0]));
+
     enum class Motion
     {
         Level = 0,
@@ -79,22 +183,232 @@ namespace
         int    boostStacks  = 3;     // most boost stacks the button can hold
         uint32 stackMs      = 9000;  // ms between boost stacks in normal flight
         uint32 stackDiveMs  = 3000;  // ms between boost stacks while diving
+        // Talent-derived, never read from the INI: D4 sets the angle a pull-out may be and still keep
+        // its whole glide, G10 the rate a level-out settles to before it drops to LevelSpeed.
+        float  shallowPullDeg = 30.0f;
+        float  levelElev      = 0.0f;
+        uint32 settleMs       = 1500;  // G10: how long the elevated level-out takes to fall back to LevelSpeed
+    };
+
+    // Talent-tree configuration. Talents.Enable is the master switch for earning and spending;
+    // the effects are applied through an effective per-player Config, never by mutating g_cfg.
+    struct TalentConfig
+    {
+        bool   enabled        = true;
+        float  yardsPerPoint  = 250.0f; // yards of dive-weighted flight per earned point
+        uint32 maxPointsPerMinute = 4;  // rolling-window cap; 0 disables (an AFK orbit is free)
+        uint32 flushMs        = 20000;  // how often a dirty progress map is written back
+        float  diveAccrual    = 1.5f;   // yards count this much more while diving -- diving pays best
+        float  teleportYards  = 200.0f; // a tick delta past this is a teleport, not flight
+        uint32 respecCost     = 0;      // copper per respec; 0 (the default) is free
     };
 
     Config g_cfg;
+    TalentConfig g_talentCfg;
+    // Talents.YardsPerPoint, read by the award loop. The player's own copy is a multiplier on top of
+    // it (G7 Slipstream), so the divisor stays the configured base.
+    float g_talentYardsPerPoint = 250.0f;
 
-    float RateFor(Motion m)
+    // The shared cap on a talent-raised state speed, as a percentage. Applied to the three base state
+    // speeds *before* boostSpeed is derived from their max(), or the derivation undoes the clamp.
+    float g_speedCapPct = 1600.0f;
+
+    // Multipliers the tree produces, recomputed from a rank set. Read by the award loop and by the
+    // per-player effective config, never by g_cfg.
+    struct Talents
     {
-        switch (m)
+        int   ranks[kTalentCount] = {};
+        int   spent[kBranchCount] = {};
+        float eff[kEffectCount];
+
+        Talents() { for (int i = 0; i < kEffectCount; ++i) eff[i] = 1.0f; }
+
+        int Spent() const { int n = 0; for (int i = 0; i < kTalentCount; ++i) n += ranks[i]; return n; }
+
+        // A talent's rank: ranks are stored per talent index, in kTalents order.
+        int RankOf(int index) const { return index >= 0 && index < kTalentCount ? ranks[index] : 0; }
+
+        // Rank of a talent by its wire id (0 if unknown or unranked). Used by the effect checks that
+        // are boolean rather than a multiplier (D5 Aftershock).
+        int RankById(uint16 id) const
         {
-            case Motion::Climb: return g_cfg.climbSpeed;
-            case Motion::Dive:  return g_cfg.diveSpeed;
-            default:            return g_cfg.levelSpeed; // Level and Hover
+            for (int i = 0; i < kTalentCount; ++i)
+                if (kTalents[i].id == id)
+                    return ranks[i];
+            return 0;
         }
+    };
+
+    // Rebuilds a rank set's multipliers from the table: every effect starts at 1.0 and takes
+    // pctPerRank * rank. Two talents on one effect sum (Held Breath + Rising Current + Aftershock).
+    void BuildTalents(const int ranks[kTalentCount], Talents& out)
+    {
+        out = Talents();
+        for (int b = 0; b < kBranchCount; ++b)
+            out.spent[b] = 0;
+        for (int i = 0; i < kTalentCount; ++i)
+        {
+            const int r = std::max(0, std::min<int>(ranks[i], kTalents[i].maxRank));
+            out.ranks[i] = r;
+            if (!r)
+                continue;
+            out.spent[kTalents[i].branch] += r;
+            if (kTalents[i].effect < E_Count)
+                out.eff[kTalents[i].effect] += kTalents[i].pctPerRank * r;
+        }
+        // A negative multiplier would invert a duration into a negative one.
+        for (int i = 0; i < kEffectCount; ++i)
+            out.eff[i] = std::max(0.0f, out.eff[i]);
+        // W14 is a client-side feel talent: its ranks are announced, never applied here.
+        out.eff[E_Feel] = 1.0f;
     }
 
-    float MaxRate() { return std::max(g_cfg.climbSpeed, std::max(g_cfg.levelSpeed, g_cfg.diveSpeed)); }
-    float MinRate() { return std::min(g_cfg.climbSpeed, std::min(g_cfg.levelSpeed, g_cfg.diveSpeed)); }
+
+    // The same three overrides, applied to a per-player copy. diveSpeed is raised before boostSpeed is
+    // derived from it, which is the whole point of clamping the base states and not the ceiling.
+    void ApplyTalents(Config& c, const Talents& t)
+    {
+        c.diveSpeed  *= t.eff[E_DiveSpeed];
+        c.diveMs      = static_cast<uint32>(static_cast<float>(c.diveMs) * t.eff[E_DiveMs]);
+        c.glideMs     = static_cast<uint32>(static_cast<float>(c.glideMs) * t.eff[E_GlideMs]);
+        c.climbDecelMs = static_cast<uint32>(static_cast<float>(c.climbDecelMs) * t.eff[E_ClimbDecel]);
+        c.boostAdd   *= t.eff[E_BoostAdd];
+        c.boostCarryPct = std::min(1.0f, c.boostCarryPct + (t.eff[E_BoostCarry] - 1.0f));
+        c.boostStacks = c.boostStacks + static_cast<int>(t.eff[E_BoostStacks] - 1.0f + 0.5f);
+        c.stackMs     = static_cast<uint32>(static_cast<float>(c.stackMs) * t.eff[E_StackInterval]);
+        c.stackDiveMs = static_cast<uint32>(static_cast<float>(c.stackDiveMs) * t.eff[E_StackDiveInterval]);
+        // G10 Skyward Path raises the rate a level-out settles to, so the glide ends above the level
+        // bar and the mount then waits out `settleMs` before it drops the rest of the way.
+        c.levelElev = c.levelSpeed * t.eff[E_LevelElev];
+
+        // One shared cap, applied to the base states before the ceiling is derived from them.
+        const float cap = g_speedCapPct * 0.01f;
+        c.climbSpeed = std::min(c.climbSpeed, cap);
+        c.levelSpeed = std::min(c.levelSpeed, cap);
+        c.diveSpeed  = std::min(c.diveSpeed,  cap);
+        // D4 is additive degrees, not a percentage: 30 degrees plus 15 per rank.
+        c.shallowPullDeg = 30.0f + (t.eff[E_ShallowPull] - 1.0f);
+        // The elevated glide is held to the same cap: a raised LevelSpeed still bounds it.
+        c.levelElev  = std::min(c.levelElev, cap);
+        c.boostSpeed = std::max(c.boostSpeed,
+                                std::max(c.climbSpeed, std::max(c.levelSpeed, c.diveSpeed)));
+
+        if (!c.diveMs) c.diveMs = 1;
+        if (!c.glideMs) c.glideMs = 1;
+        if (!c.climbDecelMs) c.climbDecelMs = 1;
+        if (!c.stackMs) c.stackMs = 1;
+        if (!c.stackDiveMs) c.stackDiveMs = 1;
+        if (c.boostStacks > 4) c.boostStacks = 4; // 3 configured + 1 from G9 Twin Vault
+    }
+
+    // --- per-character talent progress -------------------------------------------------------
+    // Unspent points are derived (points - sum of ranks), never stored twice. yard_partial carries
+    // the fraction under a whole point across a flush and across a relog.
+    struct Progress
+    {
+        Talents  tree;                      // the rank set and its multipliers
+        Config   eff;                       // g_cfg with this player's talents applied
+        uint32   points     = 0;            // lifetime points earned
+        double   yardPartial = 0.0;         // yards not yet worth a whole point
+        bool     dirty      = false;        // something to write back
+        bool     loaded     = false;        // the two tables have been read
+        uint32   accMs      = 0;            // ms since the last flush check
+        uint32   recentPoints = 0;          // points paid inside the rolling window below
+        uint32   windowMs   = 0;            // ms left in that window
+        // The flight position the previous accrual tick saw, so a tick pays the distance it covered.
+        bool     havePos    = false;
+        float    lastX = 0.0f, lastY = 0.0f, lastZ = 0.0f;
+
+        int Spent() const { return tree.Spent(); }
+        int Unspent() const
+        {
+            const int n = static_cast<int>(points) - Spent();
+            return n > 0 ? n : 0;
+        }
+        void Rebuild()
+        {
+            // Copy the ranks first: BuildTalents resets `tree` (including tree.ranks), so passing the
+            // live array across would zero the very ranks it is about to read. And start the effective
+            // config from the base every time -- applying talents on top of an already-talented copy
+            // would compound them on every rank bought.
+            int ranks[kTalentCount];
+            for (int i = 0; i < kTalentCount; ++i)
+                ranks[i] = tree.ranks[i];
+            BuildTalents(ranks, tree);
+            eff = g_cfg;                      // the base ...
+            ApplyTalents(eff, tree);          // ... then this character's ranks on top
+        }
+    };
+
+    // The character guid the two tables key on is the guid's *low* half: `characters.guid` is
+    // GetGUID().GetCounter(), which for a player is exactly the low 32 bits of GetRawValue() (a player
+    // guid has no entry bits). Keying the SQL on the raw value instead would never match a row.
+    uint32 DbGuid(uint64 raw) { return static_cast<uint32>(raw & 0xFFFFFFFFull); }
+
+    // A module cannot add a CharacterDatabasePreparedStatement entry -- that enum lives in the core.
+    // These queries interpolate integers only (guids, talent ids, ranks), never a string.
+    void LoadProgress(uint64 guid, Progress& p)
+    {
+        p.points = 0;
+        p.yardPartial = 0.0;
+        p.tree = Talents();
+
+        if (QueryResult r = CharacterDatabase.Query(
+                "SELECT `points`, `yard_partial` FROM `character_speedflying` WHERE `guid` = {}",
+                DbGuid(guid)))
+        {
+            if (Field* f = r->Fetch())
+            {
+                p.points      = f[0].Get<uint32>();
+                p.yardPartial = f[1].Get<double>();
+            }
+        }
+
+        if (QueryResult r = CharacterDatabase.Query(
+                "SELECT `talent_id`, `rank` FROM `character_speedflying_talents` WHERE `guid` = {}",
+                DbGuid(guid)))
+        {
+            do
+            {
+                Field* f = r->Fetch();
+                if (!f)
+                    break;
+                const int id = f[0].Get<uint16>();
+                const int rank = f[1].Get<uint8>();
+                for (int i = 0; i < kTalentCount; ++i)
+                    if (kTalents[i].id == id)
+                        p.tree.ranks[i] = std::max(0, std::min<int>(rank, kTalents[i].maxRank));
+            } while (r->NextRow());
+        }
+
+        p.Rebuild();
+        p.dirty  = false;
+        p.loaded = true;
+    }
+
+    // Writes the progress row, the ranks that changed and nothing else. The caller holds g_lock.
+    void WriteProgress(uint64 guid, Progress& p)
+    {
+        CharacterDatabase.Execute(
+            "INSERT INTO `character_speedflying` (`guid`, `points`, `yard_partial`) VALUES ({}, {}, {}) "
+            "ON DUPLICATE KEY UPDATE `points` = VALUES(`points`), `yard_partial` = VALUES(`yard_partial`)",
+            DbGuid(guid), p.points, p.yardPartial);
+
+        // Talent rows exist only while rank >= 1; a respec deletes them. Rewriting the whole (small)
+        // set keeps the delete path honest without tracking which row moved.
+        CharacterDatabase.Execute("DELETE FROM `character_speedflying_talents` WHERE `guid` = {}",
+                                   DbGuid(guid));
+        for (int i = 0; i < kTalentCount; ++i)
+        {
+            if (p.tree.ranks[i] <= 0)
+                continue;
+            CharacterDatabase.Execute(
+                "INSERT INTO `character_speedflying_talents` (`guid`, `talent_id`, `rank`) VALUES ({}, {}, {})",
+                DbGuid(guid), static_cast<uint32>(kTalents[i].id), static_cast<uint32>(p.tree.ranks[i]));
+        }
+        p.dirty = false;
+    }
+
 
     struct PlayerState
     {
@@ -124,10 +438,34 @@ namespace
         uint32 boostElapsed = 0;          // ms into the fade
         uint32 boostDuration = 0;         // ms the fade runs for; 0 = no boost running
         float  pendingCarry = 0.0f;       // boost carry banked while climbing, released when the climb ends
+        float  divePitch  = 0.0f;         // degrees below the horizon of the last dive tick (D4 reads it)
+        bool   settling   = false;        // G10: the glide landed on the elevated rate, settling to Level now
+        float  settleFrom = 0.0f;         // rate that settle started at
+        uint32 settleAccum = 0;           // ms into that settle
     };
 
     std::mutex g_lock;
     std::unordered_map<uint64, PlayerState> g_states;
+    std::unordered_map<uint64, Progress>    g_progress;
+
+    // The per-player effective config, built once per update and never mutated in place. Returned by
+    // value on purpose: a Progress lives in a map another player's message may be inserting into.
+    Config EffectiveConfig(uint64 guid)
+    {
+        auto it = g_progress.find(guid);
+        return it != g_progress.end() ? it->second.eff : g_cfg;
+    }
+
+    // Flushes every dirty progress map. Called on a timer and on the way out.
+    void FlushAllProgress(bool force = false)
+    {
+        for (auto& kv : g_progress)
+        {
+            Progress& p = kv.second;
+            if (p.loaded && (p.dirty || force))
+                WriteProgress(kv.first, p);
+        }
+    }
 
     // Scales a fixed transition time by how far the speed actually has to travel, relative to the
     // configured full drop. A shallow pull-out recovers sooner than a deep one; the canonical dive
@@ -144,47 +482,71 @@ namespace
     // Glide a boost's carried speed buys: a fraction (BoostGlidePct) of the ordinary glide, so a full
     // BoostAdd of carry no longer pays the whole GlideMs and outlasts the next stack recharge. The
     // carry is capped at one BoostAdd, so stacks banked over a long climb cannot buy an unbounded
-    // glide when they are finally released.
-    uint32 BoostCarryMs(float carry)
+    // glide when they are finally released. Always called with the player's effective config.
+    uint32 BoostCarryMs(const Config& c, float carry)
     {
-        if (carry > g_cfg.boostAdd)
-            carry = g_cfg.boostAdd;
-        return ScaledMs(static_cast<uint32>(static_cast<float>(g_cfg.glideMs) * g_cfg.boostGlidePct),
-                        carry, g_cfg.boostAdd);
+        if (carry > c.boostAdd)
+            carry = c.boostAdd;
+        return ScaledMs(static_cast<uint32>(static_cast<float>(c.glideMs) * c.boostGlidePct),
+                        carry, c.boostAdd);
+    }
+    // Every transition helper below reads the *effective* config of the player it is moving, never
+    // g_cfg: the base value stays the ManaSpeedFlying.* key and a talent is a percentage of it, so
+    // an update loop that read g_cfg would quietly ignore every rank a player owns.
+    float RateFor(const Config& c, Motion m)
+    {
+        switch (m)
+        {
+            case Motion::Climb: return c.climbSpeed;
+            case Motion::Dive:  return c.diveSpeed;
+            default:            return c.levelSpeed; // Level and Hover
+        }
     }
 
+    float MaxRate(const Config& c) { return std::max(c.climbSpeed, std::max(c.levelSpeed, c.diveSpeed)); }
+    float MinRate(const Config& c) { return std::min(c.climbSpeed, std::min(c.levelSpeed, c.diveSpeed)); }
+
     // Transition length for entering `next` from the state we are in.
-    uint32 DurationFor(const PlayerState& st, Motion next)
+    uint32 DurationFor(const Config& c, const PlayerState& st, Motion next)
     {
-        const float nextRate = RateFor(next);
+        const float nextRate = RateFor(c, next);
         // A hover (a parked mount) is a deliberately tiny accel/decel zone in both directions: the
         // speed drops to the parked level as the mount stops and comes straight back out when it
         // moves, so parking cannot bank a residual dive glide to spend on the next take-off.
         if (st.motion == Motion::Hover || next == Motion::Hover)
-            return g_cfg.hoverMs;
+            return c.hoverMs;
         if (next == Motion::Dive)
-            return g_cfg.diveMs;
+            return c.diveMs;
         if (st.motion == Motion::Dive)
         {
             const float dist = std::fabs(nextRate - st.current);
             if (next == Motion::Climb)
-                return ScaledMs(g_cfg.climbDecelMs, dist, std::fabs(g_cfg.diveSpeed - g_cfg.climbSpeed));
+                return ScaledMs(c.climbDecelMs, dist, std::fabs(c.diveSpeed - c.climbSpeed));
             if (next == Motion::Level)
-                return ScaledMs(g_cfg.glideMs, dist, std::fabs(g_cfg.diveSpeed - g_cfg.levelSpeed));
+            {
+                // D4 Shallow Pull: a pull-out from a shallow dive keeps the whole glide instead of
+                // only the slice the speed being shed would pay for. The pitch is tracked from the
+                // dive's own position deltas, since the server never sees the client's camera.
+                if (st.divePitch <= c.shallowPullDeg)
+                    return c.glideMs;
+                return ScaledMs(c.glideMs, dist, std::fabs(c.diveSpeed - c.levelSpeed));
+            }
         }
         // A climb entered from a dive and cut short to level still carries the leftover dive speed,
         // so it glides out like a pull-out rather than blending like a fresh climb.
         if (st.motion == Motion::Climb && st.fromDive && next == Motion::Level)
         {
             const float dist = std::fabs(nextRate - st.current);
-            return ScaledMs(g_cfg.glideMs, dist, std::fabs(g_cfg.diveSpeed - g_cfg.levelSpeed));
+            if (st.divePitch <= c.shallowPullDeg)
+                return c.glideMs;
+            return ScaledMs(c.glideMs, dist, std::fabs(c.diveSpeed - c.levelSpeed));
         }
         // Everything else keeps the old span-proportional blend.
-        const float span = MaxRate() - MinRate();
+        const float span = MaxRate(c) - MinRate(c);
         if (span <= 0.0f)
             return 0;
         const float dist = std::fabs(nextRate - st.current);
-        return static_cast<uint32>(static_cast<float>(g_cfg.blendMs) * dist / span);
+        return static_cast<uint32>(static_cast<float>(c.blendMs) * dist / span);
     }
 
     // Curve used to accelerate a dive (a kick so it responds at once, then faster and faster),
@@ -207,8 +569,9 @@ namespace
     // BoostCarryPct of the added speed is not part of that offset: it is folded into the running
     // transition (or banked until a climb levels out) instead, so it bleeds off over the ordinary
     // glide and the boost still pays speed seconds after the burst is gone. There is no cooldown, so
-    // held stacks can be chained.
-    void ActivateBoost(PlayerState& st)
+    // held stacks can be chained. `abort` is D5 Aftershock: the carry is kept but the burst does not
+    // fade, so releasing the key into a dive hands the whole boost to the dive at once.
+    void ActivateBoost(PlayerState& st, const Config& c, bool abort = false)
     {
         if (!st.eligible || st.stacks <= 0)
             return;
@@ -218,14 +581,14 @@ namespace
             return;
 
         const float applied = st.current + st.boostOffset;
-        const float boosted = std::min(g_cfg.boostSpeed, applied + g_cfg.boostAdd);
+        const float boosted = std::min(c.boostSpeed, applied + c.boostAdd);
         if (boosted <= applied)
             return; // already at the ceiling
 
         st.stacks--;
 
         const float add = boosted - applied;
-        float carry     = add * g_cfg.boostCarryPct;
+        float carry     = add * c.boostCarryPct;
 
         // A boost may raise the *base* glide only up to the fastest normal state (the dive ceiling);
         // speed past that stays in the fading burst offset instead. Without this, a boost spent at or
@@ -233,7 +596,7 @@ namespace
         // being shed, so that one boost stretched the whole following glide -- the HUD's boost band
         // stayed lit for tens of seconds and the boost read as never emptying. Keeping the overrun in
         // the short burst means it fades on BoostFadeMs, not on the ordinary glide.
-        const float room = std::max(0.0f, MaxRate() - st.current);
+        const float room = std::max(0.0f, MaxRate(c) - st.current);
         if (carry > room)
             carry = room;
 
@@ -258,23 +621,27 @@ namespace
             const uint32 left = st.elapsed < st.duration ? st.duration - st.elapsed : 0;
             st.start    = st.current + carry;
             st.current  = st.start;
-            st.target   = RateFor(st.motion);
-            st.duration = st.elapsed + left + BoostCarryMs(carry);
+            st.target   = RateFor(c, st.motion);
+            st.duration = st.elapsed + left + BoostCarryMs(c, carry);
             st.curve    = Curve::EaseIn;
         }
         else
             carry = 0.0f;
 
         // Add to any boost still fading so chained stacks build one bigger burst instead of replacing.
-        st.boostStart    = st.boostOffset + (add - carry);
+        // Aftershock folds the whole burst into the base and leaves nothing to fade: the speed is
+        // committed to whatever transition is running instead of bleeding off over BoostFadeMs.
+        st.boostStart    = abort ? 0.0f : st.boostOffset + (add - carry);
         st.boostOffset   = st.boostStart;
         st.boostElapsed  = 0;
-        st.boostDuration = g_cfg.boostFadeMs;
+        st.boostDuration = abort ? 0 : c.boostFadeMs;
+        if (abort)
+            st.current += add - carry;
     }
 
     // Records the state a link message named. The first message on a mount snaps the applied rate so
     // a take-off does not spend seconds ramping from the mount's own speed.
-    void SetTarget(PlayerState& st, Motion m)
+    void SetTarget(PlayerState& st, const Config& c, Motion m)
     {
         st.sinceLink = 0;
 
@@ -282,7 +649,7 @@ namespace
         {
             st.eligible  = true;
             st.motion    = m;
-            st.current   = RateFor(m);
+            st.current   = RateFor(c, m);
             st.start     = st.current;
             st.target    = st.current;
             st.elapsed   = 0;
@@ -291,16 +658,15 @@ namespace
             st.fromDive  = false;
             st.pendingCarry = 0.0f;
             st.lastSent  = -1.0f;
-            st.sendAccum = g_cfg.sendMs; // force the first packet out on the next update
+            st.sendAccum = c.sendMs; // force the first packet out on the next update
             return;
         }
 
         if (m == st.motion)
         {
-            st.target = RateFor(m); // heartbeat: keep the running transition going
+            st.target = RateFor(c, m); // heartbeat: keep the running transition going
             return;
         }
-
         // A real state change: start a fresh transition from wherever the speed is now.
         const Motion prev = st.motion;
         if (m == Motion::Climb)
@@ -320,14 +686,14 @@ namespace
                 // (no upward step), but only up to the fastest normal state (the dive ceiling):
                 // anything past that is speed no plain state reaches, so it stays a fading burst
                 // instead of raising the base and stretching the glide this level-out runs.
-                const float live = std::min(g_cfg.boostSpeed, st.current + st.boostOffset);
-                const float base = std::min(live, std::max(MaxRate(), st.current));
+                const float live = std::min(c.boostSpeed, st.current + st.boostOffset);
+                const float base = std::min(live, std::max(MaxRate(c), st.current));
                 st.current       = base;
                 st.boostStart    = live - base;
                 st.boostOffset   = live - base;
                 st.boostElapsed  = 0;
-                st.boostDuration = st.boostStart > 0.0f ? g_cfg.boostFadeMs : 0;
-                foldedCarry      = std::min(st.pendingCarry, std::max(0.0f, g_cfg.boostSpeed - base));
+                st.boostDuration = st.boostStart > 0.0f ? c.boostFadeMs : 0;
+                foldedCarry      = std::min(st.pendingCarry, std::max(0.0f, c.boostSpeed - base));
             }
             else
             {
@@ -335,25 +701,35 @@ namespace
                 // else keeps the banked half folded into the new transition.
                 const float base = st.current;
                 foldedCarry = std::min(st.pendingCarry,
-                                       std::max(0.0f, std::max(MaxRate(), base) - base));
+                                       std::max(0.0f, std::max(MaxRate(c), base) - base));
                 st.current = base + foldedCarry;
             }
             st.pendingCarry = 0.0f;
         }
 
         st.start    = st.current;
-        st.target   = RateFor(m);
+        st.target   = RateFor(c, m);
+        // G10 Skyward Path: a level-out ends above the level bar on the elevated rate, and the update
+        // path then waits out SettleMs before dropping the rest of the way. Gated on coming *down* from
+        // a dive or a climb: leveling out of a hover must not lift the mount above the bar.
+        if (m == Motion::Level && c.levelElev > 0.0f && st.target < c.levelElev &&
+            (prev == Motion::Dive || prev == Motion::Climb))
+        {
+            st.target     = c.levelElev;
+            st.settleFrom = st.target;
+            st.settling   = true;
+        }
         st.elapsed  = 0;
-        st.duration = DurationFor(st, m);
+        st.duration = DurationFor(c, st, m);
         st.curve    = CurveFor(st, m);
         // A banked carry pays for its own glide: a full BoostAdd of carry buys BoostGlidePct of the
         // ordinary GlideMs, a smaller carry proportionally less, so the retained speed is not dumped
         // in three or four seconds. Only when the mount is actually shedding speed -- an eased rise
         // from below the level speed would just delay settling, not carry momentum. Keep whichever
         // glide is longer, so a pull-out that still carries dive speed is never shortened.
-        if (m == Motion::Level && foldedCarry > 0.0f && g_cfg.boostAdd > 0.0f && st.start > st.target)
+        if (m == Motion::Level && foldedCarry > 0.0f && c.boostAdd > 0.0f && st.start > st.target)
         {
-            const uint32 carryDur = BoostCarryMs(foldedCarry);
+            const uint32 carryDur = BoostCarryMs(c, foldedCarry);
             if (carryDur > st.duration)
             {
                 st.duration = carryDur;
@@ -361,6 +737,8 @@ namespace
             }
         }
         st.motion   = m;
+        // Only a state change arms or clears a settle; the block above set the flag it needs, and this
+        // line must not wipe it. The old settle was already cleared on entry to the !eligible branch.
     }
 
     // Publish the configured speeds and the live stack count to the client so its bar, particles,
@@ -371,12 +749,12 @@ namespace
     // its last addon message, ignores a body it cannot parse, and uses the last two fields to anchor
     // the orb's recharge bar to the server's exact position (an older server omits them). A UI reload
     // on the client drops the value, which the slow resend covers.
-    void SendSpeedAnnounce(Player* player, int stacks, uint32 stackAccum, uint32 stackInterval)
+    void SendSpeedAnnounce(Player* player, const Config& c, int stacks, uint32 stackAccum, uint32 stackInterval)
     {
         char body[160];
         std::snprintf(body, sizeof(body), "S:%.3g,%.3g,%.3g,%u,%d,%u,%d,%u,%u,%u,%u",
-                      g_cfg.levelSpeed * 100.0f, g_cfg.diveSpeed * 100.0f, g_cfg.boostSpeed * 100.0f, 0u,
-                      g_cfg.boostStacks, g_cfg.boostFadeMs, stacks, g_cfg.stackMs, g_cfg.stackDiveMs,
+                      c.levelSpeed * 100.0f, c.diveSpeed * 100.0f, c.boostSpeed * 100.0f, 0u,
+                      c.boostStacks, c.boostFadeMs, stacks, c.stackMs, c.stackDiveMs,
                       stackAccum, stackInterval);
 
         // The client listens for the addon prefix on CHAT_MSG_ADDON, which the client's chat layer only
@@ -387,14 +765,233 @@ namespace
         ChatHandler::BuildChatPacket(data, CHAT_MSG_WHISPER, LANG_ADDON, player, player, message);
         player->SendDirectMessage(&data);
     }
-}
+
+    // --- the talent tree --------------------------------------------------------------------------
+    // Every one of these runs with g_lock held, so a rank write and the tally that answers it cannot
+    // interleave with another message from the same client.
+
+    // D5 Aftershock: the client's boost key was released while a boost is still fading. Only a diver
+    // that owns the talent gets to fold the burst into a dive; for anyone else the fade runs its course.
+    // The check is on the rank, not on the message, so a forged 'X' buys nothing.
+    void HandleAftershock(uint64 guid)
+    {
+        auto pit = g_progress.find(guid);
+        if (pit == g_progress.end() || !pit->second.loaded)
+            return;
+        const Talents& tree = pit->second.tree;
+        for (int i = 0; i < kTalentCount; ++i)
+            if (kTalents[i].id == 5 && !tree.ranks[i])
+                return; // no rank in Aftershock
+
+        auto it = g_states.find(guid);
+        if (it == g_states.end())
+            return;
+        PlayerState& st = it->second;
+        if (!st.eligible || !st.boostDuration || st.motion != Motion::Dive)
+            return; // only a live boost released straight into a dive
+
+        ActivateBoost(st, pit->second.eff, true);
+        st.sendAccum = pit->second.eff.sendMs; // push the folded speed out at once
+    }
+
+    // Sends one "WXLTT" body. Same routing as the speed announce: the prefix rides at the front of a
+    // LANG_ADDON whisper, which is the only prefix the client's chat layer parses.
+    void SendTalentLine(Player* player, const std::string& body)
+    {
+        WorldPacket data;
+        std::string message = std::string("WXLTT\t") + body;
+        ChatHandler::BuildChatPacket(data, CHAT_MSG_WHISPER, LANG_ADDON, player, player, message);
+        player->SendDirectMessage(&data);
+    }
+
+    // The authoritative tally: lifetime points, points spent and unspent, then one id:rank pair per
+    // talent the character owns. Trailing pairs are a list, so a new talent needs no protocol change.
+    void SendTalentTally(Player* player, const Progress& p)
+    {
+        char body[512];
+        int n = std::snprintf(body, sizeof(body), "T:%u,%d,%d", p.points, p.Spent(), p.Unspent());
+        if (n < 0)
+            return;
+        for (int i = 0; i < kTalentCount && n < static_cast<int>(sizeof(body)) - 16; ++i)
+        {
+            if (p.tree.ranks[i] <= 0)
+                continue;
+            n += std::snprintf(body + n, sizeof(body) - static_cast<size_t>(n), ",%u:%d",
+                               static_cast<unsigned>(kTalents[i].id), p.tree.ranks[i]);
+        }
+        SendTalentLine(player, body);
+    }
+
+    // A refusal is answered, never dropped, so the panel cannot drift out of step with the server.
+    void SendTalentRefusal(Player* player, const char* reason)
+    {
+        SendTalentLine(player, std::string("F:") + reason);
+    }
+
+    // Every write validates in this order: a loaded progress row, the id, the rank ceiling, the
+    // prerequisite, the tier, then the derived unspent count -- which is what makes a forged message
+    // cost exactly what a real one would.
+    void HandleTalentLearn(Player* player, uint64 guid, int talentId)
+    {
+        auto it = g_progress.find(guid);
+        if (it == g_progress.end() || !it->second.loaded)
+        {
+            SendTalentRefusal(player, "no-progress");
+            return;
+        }
+        Progress& p = it->second;
+
+        int index = -1;
+        for (int i = 0; i < kTalentCount; ++i)
+            if (kTalents[i].id == talentId)
+                index = i;
+        if (index < 0)
+        {
+            SendTalentRefusal(player, "unknown-talent");
+            return;
+        }
+
+        const TalentDef& t = kTalents[index];
+        if (p.tree.ranks[index] + 1 > static_cast<int>(t.maxRank))
+        {
+            SendTalentRefusal(player, "max-rank");
+            return;
+        }
+        if (t.prereq)
+        {
+            for (int i = 0; i < kTalentCount; ++i)
+                if (kTalents[i].id == t.prereq && p.tree.ranks[i] < static_cast<int>(kTalents[i].maxRank))
+                {
+                    SendTalentRefusal(player, "prereq");
+                    return;
+                }
+        }
+        // The tier is paid for by points already spent in the same branch.
+        if (p.tree.spent[t.branch] < static_cast<int>(t.tier) - 1)
+        {
+            SendTalentRefusal(player, "tier-locked");
+            return;
+        }
+        if (p.Unspent() <= 0)
+        {
+            SendTalentRefusal(player, "no-points");
+            return;
+        }
+
+        p.tree.ranks[index]++;
+        p.Rebuild();
+        p.dirty = true;
+        LOG_INFO("modules", "mod-mana-speedflying: {} learnt talent {} (rank {}/{})",
+                 guid, t.id, p.tree.ranks[index], t.maxRank);
+        SendTalentTally(player, p);
+    }
+
+    // Respec: refund one branch ("1".."3") or everything ("A"). Free unless Talents.RespecCost is
+    // set. Every refunded point returns to the derived unspent count, and a tier whose spending falls
+    // below its cost relocks on its own -- the lock is read from that count, never stored.
+    void HandleTalentRefund(Player* player, uint64 guid, const std::string& what)
+    {
+        auto it = g_progress.find(guid);
+        if (it == g_progress.end() || !it->second.loaded)
+        {
+            SendTalentRefusal(player, "no-progress");
+            return;
+        }
+        Progress& p = it->second;
+
+        const int branch = what == "A" ? -1 : std::atoi(what.c_str()) - 1;
+        if (branch < -1 || branch >= static_cast<int>(kBranchCount))
+        {
+            SendTalentRefusal(player, "bad-branch");
+            return;
+        }
+
+        // Check affordability once, before anything is refunded, so a half-applied respec is not a
+        // state this module can be in.
+        if (g_talentCfg.respecCost && !player->HasEnoughMoney(g_talentCfg.respecCost))
+        {
+            SendTalentRefusal(player, "no-money");
+            return;
+        }
+
+        int refunded = 0;
+        for (int i = 0; i < kTalentCount; ++i)
+        {
+            if (branch >= 0 && kTalents[i].branch != branch)
+                continue;
+            if (!p.tree.ranks[i])
+                continue;
+            p.tree.ranks[i] = 0;
+            ++refunded;
+        }
+        if (!refunded)
+        {
+            SendTalentTally(player, p); // nothing to refund; still answer, so the panel redraws
+            return;
+        }
+
+        if (g_talentCfg.respecCost)
+            player->ModifyMoney(-static_cast<int32>(g_talentCfg.respecCost));
+        p.Rebuild();
+        p.dirty = true;
+        SendTalentTally(player, p);
+    }
+
+    // Parses a "WXLTT" body. Everything arriving here is a *request*: the server decides. A refusal is
+    // an answer, never a silent drop, so the client panel cannot drift out of step.
+    //   WXLTT\tW\t<talentId>   WXLTT\tR\t<1|2|3|A>   WXLTT\tQ
+    void HandleTalentMessage(Player* player, const std::string& msg)
+    {
+        if (!g_talentCfg.enabled)
+        {
+            SendTalentRefusal(player, "disabled");
+            return;
+        }
+
+        const size_t op = 6;
+        if (msg.size() <= op)
+            return;
+
+        // Only mounted flight earns and only a mount spends: a respec while riding a ground mount is
+        // still fine, but an on-foot character cannot touch the tree.
+        const uint64 guid = player->GetGUID().GetRawValue();
+        std::lock_guard<std::mutex> guard(g_lock);
+
+        if (!player->IsMounted())
+        {
+            SendTalentRefusal(player, "not-mounted");
+            return;
+        }
+
+        switch (msg[op])
+        {
+            case 'W':
+                HandleTalentLearn(player, guid, std::atoi(msg.c_str() + op + 2));
+                break;
+            case 'R':
+                HandleTalentRefund(player, guid, msg.substr(op + 2));
+                break;
+            case 'Q':
+            {
+                auto it = g_progress.find(guid);
+                if (it == g_progress.end() || !it->second.loaded)
+                    SendTalentRefusal(player, "no-progress");
+                else
+                    SendTalentTally(player, it->second);
+                break;
+            }
+            default:
+                break; // an unknown op is a newer client's; leave it for a build that knows it
+        }
+    }
 
 class ManaSpeedFlyingPlayer : public PlayerScript
 {
 public:
     ManaSpeedFlyingPlayer()
         : PlayerScript("ManaSpeedFlyingPlayer",
-                       { PLAYERHOOK_ON_BEFORE_SEND_CHAT_MESSAGE, PLAYERHOOK_ON_UPDATE, PLAYERHOOK_ON_LOGOUT }) {}
+                       { PLAYERHOOK_ON_BEFORE_SEND_CHAT_MESSAGE, PLAYERHOOK_ON_UPDATE, PLAYERHOOK_ON_LOGIN,
+                         PLAYERHOOK_ON_LOGOUT, PLAYERHOOK_ON_DELETE }) {}
 
     // The client link. wxl-mana-speedflying senders are the only ones that matter; everything else on the
     // addon channel is left as the core received it. The channel is untrusted: a '1' link is only
@@ -404,6 +1001,14 @@ public:
     {
         if (!player || lang != LANG_ADDON)
             return;
+
+        // The talent tree rides its own prefix, so the link parser below is left exactly as it was.
+        if (msg.size() >= 6 && msg.compare(0, 6, "WXLTT\t") == 0)
+        {
+            HandleTalentMessage(player, msg);
+            return;
+        }
+
         if (msg.size() < 8 || msg.compare(0, 6, "WXLMS\t") != 0)
             return;
 
@@ -436,7 +1041,8 @@ public:
             // A client sends at most one message per ~200 ms; anything faster is a flood. Boost
             // messages are never throttled (each spends a stack and must be answered), so the
             // client's stack count cannot desync from a dropped one.
-            if (state != 'B' && st.lastMsgMs && now - st.lastMsgMs < 50)
+            // The flood guard exempts 'B' because each boost spends a stack and must be answered.
+            if (state != 'B' && state != 'X' && st.lastMsgMs && now - st.lastMsgMs < 50)
                 return;
             st.lastMsgMs = now;
 
@@ -453,13 +1059,26 @@ public:
             // added speed is spent as extra glide time instead of a fixed timed burst. The server only
             // drives a flying mount, so a boost off the ground is answered (to keep the client's count
             // honest) but not applied.
+            // Everything below reads this player's own effective config, so a talent actually moves
+            // the speed instead of only being validated.
+            const Config eff = EffectiveConfig(guid);
+
             if (state == 'B')
             {
                 st.sinceLink = 0;
                 if (player->IsFlying())
-                    ActivateBoost(st);
+                    ActivateBoost(st, eff);
                 // Answer every attempt with the authoritative count, spent or rejected, so a click the
                 // server ignored cannot leave the client button one stack off until the slow resend.
+                st.lastAnnounce = now;
+                announce        = true;
+            }
+            else if (state == 'X')
+            {
+                // D5 Aftershock: the boost key came up while a boost is still live. Handled inline
+                // (not via SetTarget) because it must run even when the state letter is unchanged.
+                st.sinceLink = 0;
+                HandleAftershock(guid);
                 st.lastAnnounce = now;
                 announce        = true;
             }
@@ -467,15 +1086,15 @@ public:
             {
                 switch (state)
                 {
-                    case 'C': SetTarget(st, Motion::Climb); break;
-                    case 'D': SetTarget(st, Motion::Dive);  break;
-                    case 'H': SetTarget(st, Motion::Hover); break;
-                    default:  SetTarget(st, Motion::Level); break;
+                    case 'C': SetTarget(st, eff, Motion::Climb); break;
+                    case 'D': SetTarget(st, eff, Motion::Dive);  break;
+                    case 'H': SetTarget(st, eff, Motion::Hover); break;
+                    default:  SetTarget(st, eff, Motion::Level); break;
                 }
             }
             if (announce)
-                SendSpeedAnnounce(player, st.stacks, st.stackAccum,
-                                  st.motion == Motion::Dive ? g_cfg.stackDiveMs : g_cfg.stackMs);
+                SendSpeedAnnounce(player, eff, st.stacks, st.stackAccum,
+                                  st.motion == Motion::Dive ? eff.stackDiveMs : eff.stackMs);
         }
     }
 
@@ -497,6 +1116,72 @@ public:
         // write-back. All config reads are inside this lock too, so a reload cannot tear them.
         std::lock_guard<std::mutex> guard(g_lock);
 
+        // The progress row is read once, on login, outside this lock (see OnPlayerLogin). A player whose
+        // row is somehow missing is treated as a fresh character rather than queried here: a blocking
+        // database read under g_lock would stall every other player's link tick on this thread.
+        auto pit = g_progress.find(guid);
+        if (pit == g_progress.end())
+            pit = g_progress.emplace(guid, Progress{}).first;
+        Progress& progress = pit->second;
+
+        // Everything the update tick applies comes from the player's own effective config.
+        const Config eff = EffectiveConfig(guid);
+
+        // Talent points are earned here too. A relocated first position is adopted rather than paid,
+        // so a login or a teleport cannot mint a point.
+        if (g_talentCfg.enabled)
+        {
+            const bool earning = flying && player->IsMounted() && player->GetMountID() &&
+                                 g_states.count(guid) && g_states[guid].eligible;
+            const float x = player->GetPositionX();
+            const float y = player->GetPositionY();
+            const float z = player->GetPositionZ();
+            if (earning)
+            {
+                if (progress.havePos)
+                {
+                    const float dx = x - progress.lastX;
+                    const float dy = y - progress.lastY;
+                    const float dz = z - progress.lastZ;
+                    const float yards = std::sqrt(dx * dx + dy * dy + dz * dz);
+                    if (yards < g_talentCfg.teleportYards)
+                    {
+                        // Diving pays best: the same yard counts more while heading down.
+                        const Motion m = g_states[guid].motion;
+                        // A dive's own slope, for D4: the server never sees which way the client looks.
+                        if (m == Motion::Dive && yards > 1.0f)
+                            g_states[guid].divePitch = static_cast<float>(
+                                std::atan2(-dz, std::sqrt(dx * dx + dy * dy)) * 57.2957795);
+                        const float weight = (m == Motion::Dive) ? g_talentCfg.diveAccrual : 1.0f;
+                        progress.yardPartial += static_cast<double>(yards * weight) *
+                                                progress.tree.eff[E_YardsPerPoint] / g_talentYardsPerPoint;
+                        while (progress.yardPartial >= 1.0)
+                        {
+                            progress.yardPartial -= 1.0;
+                            if (g_talentCfg.maxPointsPerMinute &&
+                                progress.recentPoints >= g_talentCfg.maxPointsPerMinute)
+                                break; // the rolling cap: an AFK orbit is not the whole economy
+                            progress.points++;
+                            progress.recentPoints++;
+                            progress.dirty = true;
+                            LOG_INFO("modules", "mod-mana-speedflying: {} earned talent point {}",
+                                     guid, progress.points);
+                        }
+                    }
+                }
+            }
+            progress.lastX = x;
+            progress.lastY = y;
+            progress.lastZ = z;
+            progress.havePos = earning;
+            progress.windowMs += p_time;
+            if (progress.windowMs >= 60000)
+            {
+                progress.windowMs -= 60000;
+                progress.recentPoints /= 2; // decay rather than reset, so a boundary is not a cliff
+            }
+        }
+
         auto it = g_states.find(guid);
         if (it == g_states.end())
             return;
@@ -504,17 +1189,17 @@ public:
 
         // Advance the link clock even while grounded, so a link that dies as the mount lands still
         // times out instead of freezing eligible and resuming stale on the next take-off.
-        if (st.eligible && g_cfg.timeoutMs)
+        if (st.eligible && eff.timeoutMs)
         {
             st.sinceLink += p_time;
-            if (st.sinceLink > g_cfg.timeoutMs)
+            if (st.sinceLink > eff.timeoutMs)
             {
                 st.eligible  = false; // link went quiet: the client is gone, stop driving the mount
                 st.announced = false; // force the speeds onto the next link
             }
         }
 
-        if (!g_cfg.enabled || !flying || !st.eligible)
+        if (!eff.enabled || !flying || !st.eligible)
         {
             // Restore the mount's own speed once and clear the running blend and boost, so a grounded,
             // unlinked or switched-off mount cannot resume a stale rate on the next take-off. Banked
@@ -543,6 +1228,8 @@ public:
             st.boostElapsed  = 0;
             st.boostDuration = 0;
             st.pendingCarry  = 0.0f;
+            st.settling      = false; // grounded: a pending Skyward settle must not resume on take-off
+            st.settleAccum   = 0;
             return;
         }
 
@@ -572,12 +1259,33 @@ public:
             }
         }
 
+        // G10's second phase: once the glide has reached the elevated rate, the mount drops to the plain
+        // level speed over a fixed settle. Gated on the transition above having finished, or the settle
+        // would race the very glide it is supposed to follow.
+        if (st.settling && st.elapsed >= st.duration)
+        {
+            st.settleAccum += p_time;
+            if (st.settleAccum >= eff.settleMs)
+            {
+                st.current     = eff.levelSpeed;
+                st.settling    = false;
+                st.settleAccum = 0;
+            }
+            else
+                st.current = st.settleFrom +
+                             (eff.levelSpeed - st.settleFrom) *
+                                 (static_cast<float>(st.settleAccum) / static_cast<float>(eff.settleMs));
+            // The settle owns the applied rate while it runs: pin the target to it so the transition
+            // block above cannot pull the speed back to the elevated rate on the next tick.
+            st.target = st.current;
+        }
+
         // Boost stacks build on a timer: one every StackIntervalMs, or every StackDiveIntervalMs
         // while diving, capped at the configured stock. The timer only runs while the mount is
         // link-eligible, so a grounded or unlinked mount earns nothing.
         const int    prevStacks       = st.stacks;
-        const uint32 stackIntervalNow = st.motion == Motion::Dive ? g_cfg.stackDiveMs : g_cfg.stackMs;
-        if (st.stacks < g_cfg.boostStacks)
+        const uint32 stackIntervalNow = st.motion == Motion::Dive ? eff.stackDiveMs : eff.stackMs;
+        if (st.stacks < eff.boostStacks)
         {
             if (stackIntervalNow)
             {
@@ -619,14 +1327,14 @@ public:
             }
         }
 
-        const float applied = std::min(g_cfg.boostSpeed, st.current + st.boostOffset);
+        const float applied = std::min(eff.boostSpeed, st.current + st.boostOffset);
         // Settled once the base transition is done and any boost has fully faded, so the exact final
         // value is always pushed. Testing `current == target` instead would fire every tick during a
         // boost fade (the base is settled but the offset is not), defeating the SendMs throttle.
         const bool settled = (applied == st.target && st.boostDuration == 0);
 
         st.sendAccum += p_time;
-        if (st.sendAccum >= g_cfg.sendMs || settled)
+        if (st.sendAccum >= eff.sendMs || settled)
         {
             st.sendAccum = 0;
             if (applied != st.lastSent)
@@ -639,15 +1347,68 @@ public:
         // A stack gained while diving is pushed at once, so the client button never lags the count the
         // next boost will actually spend.
         if (st.stacks != prevStacks)
-            SendSpeedAnnounce(player, st.stacks, st.stackAccum, st.stackInterval);
+            SendSpeedAnnounce(player, eff, st.stacks, st.stackAccum, st.stackInterval);
+
+        // Flush the earned points on a timer, not on every award: a point is a row write, not a
+        // per-tick event, and a crash between flushes costs only the partial point in memory.
+        if (g_talentCfg.flushMs && (progress.accMs += p_time) >= g_talentCfg.flushMs)
+        {
+            progress.accMs = 0;
+            FlushAllProgress();
+        }
     }
 
+    // Read the character's points and ranks once, on the session's own thread. The two queries block,
+    // which is why this is not done in OnPlayerUpdate: that runs under g_lock and a read there would
+    // stall every other player's link tick behind it.
+    void OnPlayerLogin(Player* player) override
+    {
+        if (!player)
+            return;
+        const uint64 guid = player->GetGUID().GetRawValue();
+        Progress p;
+        LoadProgress(guid, p);
+
+        std::lock_guard<std::mutex> guard(g_lock);
+        // A reconnect can win the race against a slow logout; an entry already there keeps its ranks,
+        // so only a cleanly absent player is replaced.
+        auto it = g_progress.find(guid);
+        if (it == g_progress.end())
+            g_progress.emplace(guid, std::move(p));
+        else
+            it->second.loaded = true;
+    }
+
+    // The link state and the progress map both go on logout: the state is volatile, the progress is
+    // flushed first so a relog finds exactly the ranks and the points it earned.
+    // flushed first so a relog finds exactly the ranks and the points it earned.
     void OnPlayerLogout(Player* player) override
     {
         if (!player)
             return;
         std::lock_guard<std::mutex> guard(g_lock);
-        g_states.erase(player->GetGUID().GetRawValue());
+        const uint64 guid = player->GetGUID().GetRawValue();
+        auto pit = g_progress.find(guid);
+        if (pit != g_progress.end())
+        {
+            if (pit->second.dirty)
+                WriteProgress(guid, pit->second);
+            g_progress.erase(pit);
+        }
+        g_states.erase(guid);
+    }
+
+    // Character deletion takes the talent rows with it, so a recycled guid cannot inherit a tree.
+    void OnPlayerDelete(ObjectGuid guid, uint32 /*accountId*/) override
+    {
+        const uint64 raw = guid.GetRawValue();
+        {
+            std::lock_guard<std::mutex> guard(g_lock);
+            g_progress.erase(raw);
+        }
+        CharacterDatabase.Execute("DELETE FROM `character_speedflying_talents` WHERE `guid` = {}",
+                                   DbGuid(raw));
+        CharacterDatabase.Execute("DELETE FROM `character_speedflying` WHERE `guid` = {}", DbGuid(raw));
     }
 };
 
@@ -680,6 +1441,17 @@ public:
         cfg.stackMs      = sConfigMgr->GetOption<uint32>("ManaSpeedFlying.StackIntervalMs", 9000);
         cfg.stackDiveMs  = sConfigMgr->GetOption<uint32>("ManaSpeedFlying.StackDiveIntervalMs", 3000);
 
+        // The four talent keys. Talents.Enable gates earning and spending; the rest default so the
+        // module runs with no talent key present at all.
+        TalentConfig tc;
+        tc.enabled        = sConfigMgr->GetOption<bool>("Talents.Enable", true);
+        tc.yardsPerPoint  = sConfigMgr->GetOption<float>("Talents.YardsPerPoint", 250.0f);
+        tc.maxPointsPerMinute = sConfigMgr->GetOption<uint32>("Talents.MaxPointsPerMinute", 4);
+        tc.respecCost     = sConfigMgr->GetOption<uint32>("Talents.RespecCost", 0);
+
+        float speedCapPct = sConfigMgr->GetOption<float>("ManaSpeedFlying.SpeedCapPct", 1600.0f);
+        speedCapPct = std::max(10.0f, speedCapPct);
+
         cfg.climbSpeed   = std::max(cfg.climbSpeed,   0.1f);
         cfg.levelSpeed   = std::max(cfg.levelSpeed,   0.1f);
         cfg.diveSpeed    = std::max(cfg.diveSpeed,    0.1f);
@@ -695,12 +1467,26 @@ public:
         if (!cfg.stackMs) cfg.stackMs = 1;
         if (!cfg.stackDiveMs) cfg.stackDiveMs = 1;
         if (!cfg.sendMs) cfg.sendMs = 1;
+        if (tc.yardsPerPoint < 1.0f) tc.yardsPerPoint = 1.0f;
+        if (tc.teleportYards < 50.0f) tc.teleportYards = 50.0f;
 
         // Publish the new config and drop every link under the lock readers take. The entries are kept
         // (only marked ineligible) so the update path can restore each mount's own speed: clearing the
         // map would leave the last blended rate applied with nothing left to repair it.
         std::lock_guard<std::mutex> guard(g_lock);
         g_cfg = cfg;
+        g_talentCfg = tc;
+        g_talentYardsPerPoint = tc.yardsPerPoint;
+        g_speedCapPct = speedCapPct;
+
+        // Every live player's effective config is rebuilt from the new base, so a reload reaches
+        // ranks that were bought against the old values without a relog.
+        for (auto& kv : g_progress)
+        {
+            kv.second.eff = cfg;
+            ApplyTalents(kv.second.eff, kv.second.tree);
+        }
+
         for (auto& kv : g_states)
         {
             kv.second.eligible  = false;
@@ -708,6 +1494,7 @@ public:
         }
     }
 };
+} // namespace
 
 void AddSC_ManaSpeedFlying()
 {
