@@ -269,27 +269,25 @@ namespace
 
         int Spent() const { int n = 0; for (int i = 0; i < kTalentCount; ++i) n += ranks[i]; return n; }
 
-        // Tiers open top down, and only the talents of the tier above matter: a tier is done when its
-        // spendable quota is gone. The tier-2 pick is the catch: only one rival may hold ranks, so its
-        // quota is a full picked talent -- the old all-at-max check could never see both rivals full,
-        // which kept tier 3 unreachable. Sum the tier's ranks against its one-talent cap instead.
-        // Bridges are skipped: they are extra, they sit at the same tier as the branch's real talent,
-        // and counting them would make a tier need 4 points and put the capstone out of reach.
+        // Tiers open top down, and only the talents of the tier above matter. Any rank in a tier is
+        // enough: this is what keeps a tier-2 *pick* from locking tier 3 forever. Requiring the tier's
+        // full spendable quota instead meant that picking one of the two rivals (3 spent, the cap the
+        // sum is compared against) opened the tier below, but there is no way to read "the pick is done"
+        // out of the rank set at all: an unbought rival keeps the sum under the cap, so tier 3 stayed
+        // grey with no way to satisfy it. Legibility beats strictness here, and the cost is one cheaper
+        // tree, not a broken one. The client's TierDone applies the same rule.
         bool TierDone(int branch, uint8 tier) const
         {
-            int spent = 0;
-            int cap = 0;
             for (int i = 0; i < kTalentCount; ++i)
             {
                 if (kTalents[i].branch != branch || kTalents[i].tier != tier)
                     continue;
                 if (IsBridge(i))
                     continue;
-                if (static_cast<int>(kTalents[i].maxRank) > cap)
-                    cap = static_cast<int>(kTalents[i].maxRank);
-                spent += ranks[i];
+                if (ranks[i] > 0)
+                    return true;
             }
-            return cap > 0 && spent >= cap;
+            return false;
         }
 
         // The unlock graph: Dive is the entry branch and is always open; kBranchGlide opens on a rank
