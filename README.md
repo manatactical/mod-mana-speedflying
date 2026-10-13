@@ -101,7 +101,8 @@ since the panel has no other way to see the number move.
 Every write validates in this order, inside one lock: config enabled, the player is on a mount, the
 character has a progress row, the talent id is known, `rank + 1 <= maxRank`, the tier's pick is free
 (skipped for a bridge), the branch is open, every tier above it in the branch is at full rank (skipped
-for a bridge), the lifetime cap, and only then the derived unspent count. A forged learn message
+for a bridge), the bridge's *own* branch is open (a bridge is a gate, not a bypass), the lifetime cap,
+and only then the derived unspent count. A forged learn message
 therefore costs exactly what a real one would, and a forged bridge costs a point like any other rank.
 
 A tier opens top down inside its branch: tiers 2 and 3 need the tier above them full in *every* talent
@@ -172,7 +173,9 @@ ever shorten the tree. The panel's bar shows the 13-step progress and the yards 
 
 - **Branch gate (`tree-locked`).** Dive is the entry branch and is always open. The Glide branch opens
   on a rank in 16 Still Air; the Wings branch opens on a rank in 17 Tucked Wings. A talent in a closed
-  branch is refused, so the gate cannot be walked around by buying the branch directly.
+  branch is refused, so the gate cannot be walked around by buying the branch directly. A bridge is
+  refused the same way when the branch it *sits in* is closed: 17 lives in Glide, so Wings cannot be
+  opened straight from Dive -- 16 must be bought first. The graph is a chain, Dive -> 16 -> 17.
 - **Tier gate.** Tier 1 is free to buy. Tiers 2 and 3 open only once the tier above them is at full
   rank (in every talent it holds), so a branch is 3+3+3+1 = 10 points. Tier 4 is a single-rank capstone.
   Bridges (16, 17) are skipped by that rule: they sit beside their branch's own tier-3 talent and would

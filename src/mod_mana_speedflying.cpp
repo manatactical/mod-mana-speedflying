@@ -51,10 +51,12 @@
 #include "ScriptMgr.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <limits>
 #include <mutex>
 #include <string>
 #include <unordered_map>
@@ -263,34 +265,32 @@ namespace
 
         int Spent() const { int n = 0; for (int i = 0; i < kTalentCount; ++i) n += ranks[i]; return n; }
 
-        bool AtMax(int index) const
-        {
-            return index >= 0 && index < kTalentCount &&
-                   ranks[index] >= static_cast<int>(kTalents[index].maxRank);
-        }
-
-        // Tiers open top down, and only the talents of the tier above matter: a tier is done when every
-        // talent in it is at full rank, which is the same as "the tier's one findable talent is full".
+        // Tiers open top down, and only the talents of the tier above matter: a tier is done when its
+        // spendable quota is gone. The tier-2 pick is the catch: only one rival may hold ranks, so its
+        // quota is a full picked talent -- the old all-at-max check could never see both rivals full,
+        // which kept tier 3 unreachable. Sum the tier's ranks against its one-talent cap instead.
         // Bridges are skipped: they are extra, they sit at the same tier as the branch's real talent,
         // and counting them would make a tier need 4 points and put the capstone out of reach.
         bool TierDone(int branch, uint8 tier) const
         {
-            bool any = false;
+            int spent = 0;
+            int cap = 0;
             for (int i = 0; i < kTalentCount; ++i)
             {
                 if (kTalents[i].branch != branch || kTalents[i].tier != tier)
                     continue;
                 if (IsBridge(i))
                     continue;
-                any = true;
-                if (!AtMax(i))
-                    return false;
+                if (static_cast<int>(kTalents[i].maxRank) > cap)
+                    cap = static_cast<int>(kTalents[i].maxRank);
+                spent += ranks[i];
             }
-            return any;
+            return cap > 0 && spent >= cap;
         }
 
         // The unlock graph: Dive is the entry branch and is always open; kBranchGlide opens on a rank
-        // in the Dive bridge (16) and kBranchWings on a rank in the Glide bridge (17).
+        // in the Dive bridge (16) and kBranchWings on a rank in the Glide bridge (17). A bridge is a
+        // gate, not a bypass, so a node whose own branch is closed is refused too -- see HandleTalentLearn.
         bool BranchOpen(int branch) const
         {
             if (branch <= kBranchDive || branch >= kBranchCount)
@@ -327,8 +327,13 @@ namespace
     }
 
     // The shared cap on a talent-raised state speed, as a percentage. Applied to the three base state
-    // speeds *before* boostSpeed is derived from their max(), or the derivation undoes the clamp.
+    // speeds *before* boostSpeed is derived from their max(), or the derivation undoes the clamp. Read
+    // through ApplyTalents' capPct argument, never directly by a caller.
     float g_speedCapPct = 1600.0f;
+
+    // A player's flush timer fired. The write itself rides the world thread's next tick, outside
+    // g_lock: the update path must not block on the character database while it holds the lock.
+    std::atomic<bool> g_flushWanted = false;
 
     // Rebuilds a rank set's multipliers from the table: every effect starts at 1.0 and takes
     // pctPerRank * rank. Two talents on one effect sum (Held Breath + Rising Current).
@@ -354,7 +359,9 @@ namespace
 
     // The same three overrides, applied to a per-player copy. diveSpeed is raised before boostSpeed is
     // derived from it, which is the whole point of clamping the base states and not the ceiling.
-    void ApplyTalents(Config& c, const Talents& t)
+    // capPct is passed in, not read from g_speedCapPct: a caller that is not holding g_lock (the login
+    // thread) would otherwise read the shared config while a reload is writing it.
+    void ApplyTalents(Config& c, const Talents& t, float capPct)
     {
         c.diveSpeed  *= t.eff[E_DiveSpeed];
         c.diveMs      = static_cast<uint32>(static_cast<float>(c.diveMs) * t.eff[E_DiveMs]);
@@ -370,7 +377,7 @@ namespace
         c.levelElev = c.levelSpeed * t.eff[E_LevelElev];
 
         // One shared cap, applied to the base states before the ceiling is derived from them.
-        const float cap = g_speedCapPct * 0.01f;
+        const float cap = capPct * 0.01f;
         c.climbSpeed = std::min(c.climbSpeed, cap);
         c.levelSpeed = std::min(c.levelSpeed, cap);
         c.diveSpeed  = std::min(c.diveSpeed,  cap);
@@ -421,7 +428,9 @@ namespace
             const int n = static_cast<int>(points) - Spent();
             return n > 0 ? n : 0;
         }
-        void Rebuild()
+        // Both base values are passed in rather than read from the globals: LoadProgress runs on the
+        // login thread, and g_cfg/g_speedCapPct are only writable under g_lock.
+        void Rebuild(const Config& base, float capPct)
         {
             // Copy the ranks first: BuildTalents resets `tree` (including tree.ranks), so passing the
             // live array across would zero the very ranks it is about to read. And start the effective
@@ -431,8 +440,8 @@ namespace
             for (int i = 0; i < kTalentCount; ++i)
                 ranks[i] = tree.ranks[i];
             BuildTalents(ranks, tree);
-            eff = g_cfg;                      // the base ...
-            ApplyTalents(eff, tree);          // ... then this character's ranks on top
+            eff = base;                       // the base ...
+            ApplyTalents(eff, tree, capPct);  // ... then this character's ranks on top
         }
     };
 
@@ -443,7 +452,10 @@ namespace
 
     // A module cannot add a CharacterDatabasePreparedStatement entry -- that enum lives in the core.
     // These queries interpolate integers only (guids, talent ids, ranks), never a string.
-    void LoadProgress(uint64 guid, Progress& p)
+    // `base` and `capPct` are an already-taken copy of the published config. This runs on the login
+    // thread, before anything is under g_lock: reading the globals here and letting OnAfterConfigLoad
+    // assign them would be an unsynchronized race. The caller copies under the lock instead.
+    void LoadProgress(uint64 guid, const Config& base, float capPct, Progress& p)
     {
         p.points = 0;
         p.yardPartial = 0.0;
@@ -479,7 +491,7 @@ namespace
             } while (r->NextRow());
         }
 
-        p.Rebuild();
+        p.Rebuild(base, capPct);
         p.dirty  = false;
         p.loaded = true;
     }
@@ -554,7 +566,10 @@ namespace
         return it != g_progress.end() ? it->second.eff : g_cfg;
     }
 
-    // Flushes every dirty progress map. Called on a timer and on the way out.
+    // Flushes every dirty progress map while g_lock is held: a per-tick caller would block the whole
+    // link-tick path on the character database, so the tick only raises g_flushWanted and the write
+    // rides the world thread's own tick, which does not hold the lock. Logout and shutdown keep the
+    // synchronous call -- they need the rows on disk before the process or the session goes away.
     void FlushAllProgress(bool force = false)
     {
         for (auto& kv : g_progress)
@@ -563,6 +578,24 @@ namespace
             if (p.loaded && (p.dirty || force))
                 WriteProgress(kv.first, p);
         }
+    }
+
+    // The same flush with no lock held. The world thread's tick calls this: it copies the dirty rows
+    // under the lock, releases it, and only then talks to the database, so a flushed character DB
+    // cannot stall another player's chat hook behind the mutex.
+    void FlushAllProgressUnlocked()
+    {
+        std::vector<std::pair<uint64, Progress>> rows;
+        {
+            std::lock_guard<std::mutex> guard(g_lock);
+            rows.reserve(g_progress.size());
+            for (auto& kv : g_progress)
+                if (kv.second.loaded && kv.second.dirty)
+                    rows.emplace_back(kv.first, kv.second);
+        }
+        // Writes run free of the lock; WriteProgress only needs its own copy.
+        for (auto& r : rows)
+            WriteProgress(r.first, r.second);
     }
 
     // Scales a fixed transition time by how far the speed actually has to travel, relative to the
@@ -876,7 +909,7 @@ namespace
     void SendSpeedAnnounce(Player* player, const Config& c, int stacks, uint32 stackAccum, uint32 stackInterval)
     {
         char body[160];
-        std::snprintf(body, sizeof(body), "S:%.3g,%.3g,%.3g,%u,%d,%u,%d,%u,%u,%u,%u",
+        std::snprintf(body, sizeof(body), "S:%.4g,%.4g,%.4g,%u,%d,%u,%d,%u,%u,%u,%u",
                       c.levelSpeed * 100.0f, c.diveSpeed * 100.0f, c.boostSpeed * 100.0f, 0u,
                       c.boostStacks, c.boostFadeMs, stacks, c.stackMs, c.stackDiveMs,
                       stackAccum, stackInterval);
@@ -944,6 +977,8 @@ namespace
                 continue;
             n += std::snprintf(body + n, sizeof(body) - static_cast<size_t>(n), ",%u:%d",
                                static_cast<unsigned>(kTalents[i].id), p.tree.ranks[i]);
+            if (n < 0)
+                return; // an encoding error is not a buffer length
         }
         if (n < static_cast<int>(sizeof(body)) - 32)
         {
@@ -1013,6 +1048,14 @@ namespace
             SendTalentRefusal(player, "tree-locked");
             return;
         }
+        // A bridge bypasses the tier rules, not the branch it sits in: 17 lives in Glide, so Wings
+        // cannot be opened straight from Dive -- 16 must be bought first. Dive is the entry branch, so
+        // 16 itself passes. The client applies the same rule when it decides a node is clickable.
+        if (IsBridge(index) && !p.tree.BranchOpen(t.branch))
+        {
+            SendTalentRefusal(player, "tree-locked");
+            return;
+        }
         // A bridge has no tier above it to unlock: it is the way in, not a step up.
         if (!IsBridge(index))
             for (uint8 r = 1; r < t.tier; ++r)
@@ -1030,7 +1073,7 @@ namespace
         }
 
         p.tree.ranks[index]++;
-        p.Rebuild();
+        p.Rebuild(g_cfg, g_speedCapPct);
         p.dirty = true;
         LOG_INFO("modules", "mod-mana-speedflying: {} learnt talent {} (rank {}/{})",
                  guid, t.id, p.tree.ranks[index], t.maxRank);
@@ -1096,7 +1139,7 @@ namespace
 
         if (g_talentCfg.respecCost)
             player->ModifyMoney(-static_cast<int32>(g_talentCfg.respecCost));
-        p.Rebuild();
+        p.Rebuild(g_cfg, g_speedCapPct);
         p.dirty = true;
         SendTalentTally(player, p);
     }
@@ -1132,14 +1175,26 @@ namespace
         switch (msg[op])
         {
             case 'W':
-                // A truncated argument would read past the NUL; the channel is untrusted input.
-                if (msg.size() <= op + 1)
+            {
+                // A truncated argument, a missing separator or a number too large for an int would
+                // otherwise be parsed out of whatever follows; the channel is untrusted input.
+                if (msg.size() <= op + 2 || msg[op + 1] != '\t')
                 {
                     SendTalentRefusal(player, "bad-arg");
                     break;
                 }
-                HandleTalentLearn(player, guid, std::atoi(msg.c_str() + op + 2));
+                const char* arg = msg.c_str() + op + 2;
+                char*       end = nullptr;
+                const long  id  = std::strtol(arg, &end, 10);
+                if (end == arg || *end != '\0' || id < std::numeric_limits<int>::min() ||
+                    id > std::numeric_limits<int>::max())
+                {
+                    SendTalentRefusal(player, "bad-arg");
+                    break;
+                }
+                HandleTalentLearn(player, guid, static_cast<int>(id));
                 break;
+            }
             case 'R':
                 if (msg.size() <= op + 1)
                 {
@@ -1298,7 +1353,15 @@ public:
         // database read under g_lock would stall every other player's link tick on this thread.
         auto pit = g_progress.find(guid);
         if (pit == g_progress.end())
-            pit = g_progress.emplace(guid, Progress{}).first;
+        {
+            // A bare Progress default-constructs eff from the Config member initializers, not from the
+            // INI, so a tick arriving before OnPlayerLogin would silently drive the mount at the
+            // shipped defaults. Build the placeholder from the live base instead.
+            Progress fresh;
+            fresh.eff = g_cfg;
+            ApplyTalents(fresh.eff, fresh.tree, g_speedCapPct);
+            pit = g_progress.emplace(guid, std::move(fresh)).first;
+        }
         Progress& progress = pit->second;
 
         // Everything the update tick applies comes from the player's own effective config.
@@ -1544,7 +1607,7 @@ public:
         if (g_talentCfg.flushMs && (progress.accMs += p_time) >= g_talentCfg.flushMs)
         {
             progress.accMs = 0;
-            FlushAllProgress();
+            g_flushWanted = true; // the write rides the world tick, never this lock
         }
 
         // The talent bar's fill. Nothing else tells the client how far along the partial point is (a
@@ -1571,8 +1634,17 @@ public:
         if (!player)
             return;
         const uint64 guid = player->GetGUID().GetRawValue();
+        // Copy the published config before releasing the lock: LoadProgress builds an effective config
+        // from it and does its blocking queries outside the lock, on this session's own thread.
+        Config base;
+        float capPct = 1600.0f;
+        {
+            std::lock_guard<std::mutex> guard(g_lock);
+            base   = g_cfg;
+            capPct = g_speedCapPct;
+        }
         Progress p;
-        LoadProgress(guid, p);
+        LoadProgress(guid, base, capPct, p);
 
         std::lock_guard<std::mutex> guard(g_lock);
         // A reconnect can win the race against a slow logout; an entry already there keeps its ranks.
@@ -1610,6 +1682,7 @@ public:
         {
             std::lock_guard<std::mutex> guard(g_lock);
             g_progress.erase(raw);
+            g_states.erase(raw); // a recycled guid must not inherit the deleted one's live link state
         }
         CharacterDatabase.Execute("DELETE FROM `character_speedflying_talents` WHERE `guid` = {}",
                                    DbGuid(raw));
@@ -1621,7 +1694,15 @@ class ManaSpeedFlyingWorld : public WorldScript
 {
 public:
     ManaSpeedFlyingWorld()
-        : WorldScript("ManaSpeedFlyingWorld", { WORLDHOOK_ON_AFTER_CONFIG_LOAD, WORLDHOOK_ON_SHUTDOWN }) {}
+        : WorldScript("ManaSpeedFlyingWorld", { WORLDHOOK_ON_AFTER_CONFIG_LOAD, WORLDHOOK_ON_UPDATE, WORLDHOOK_ON_SHUTDOWN }) {}
+
+    // The timer flush, drained here rather than in OnPlayerUpdate: this tick holds no lock, so a slow
+    // character database stalls only this write, not every other player's link tick behind g_lock.
+    void OnUpdate(uint32 /*diff*/) override
+    {
+        if (g_flushWanted.exchange(false))
+            FlushAllProgressUnlocked();
+    }
 
     // The shutdown flush the review asked for: without it a graceful restart loses every rank bought
     // and every yard flown since the last flush. Runs while the maps are still alive, hence the hook.
@@ -1695,6 +1776,9 @@ public:
         tc.maxPoints = std::min(tc.maxPoints, 64u); // 13 is the shipped default; this only guards a typo
         if (tc.teleportYards < 50.0f) tc.teleportYards = 50.0f;
         tc.diveAccrual = std::max(0.0f, tc.diveAccrual);
+        // A cost above int32's range would flip the sign of the ModifyMoney argument below.
+        if (tc.respecCost > static_cast<uint32>(std::numeric_limits<int32>::max()))
+            tc.respecCost = static_cast<uint32>(std::numeric_limits<int32>::max());
 
         // Publish the new config and drop every link under the lock readers take. The entries are kept
         // (only marked ineligible) so the update path can restore each mount's own speed: clearing the
@@ -1709,7 +1793,7 @@ public:
         for (auto& kv : g_progress)
         {
             kv.second.eff = cfg;
-            ApplyTalents(kv.second.eff, kv.second.tree);
+            ApplyTalents(kv.second.eff, kv.second.tree, speedCapPct);
         }
 
         for (auto& kv : g_states)
