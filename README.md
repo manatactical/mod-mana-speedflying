@@ -134,10 +134,12 @@ worldserver. The build copies `mod-mana-speedflying.conf.dist` into `configs/`; 
 ## The talent tree
 
 Each character earns **points** by flying on an AdvFly mount, and spends them on 17 talents in three
-branches of four tiers. The server owns the tree: the client only renders it. A dive counts 1.5x its
-distance (so diving pays best), earning is capped per rolling minute by `Talents.MaxPointsPerMinute`
-(`0` removes the cap), and a tick covering more than 200 yards is treated as a teleport and earns
-nothing. **Dive is the entry branch and is always open**; the Glide and Wings branches open only when
+branches of four tiers. The server owns the tree: the client only renders it. A dive counts
+`Talents.DiveAccrual` (1.5) times its distance, earning is capped per rolling minute by
+`Talents.MaxPointsPerMinute` (`0` removes the cap; a point leaves the window 60 s after it was paid, so
+a steady flight keeps earning at the configured rate), and a tick covering more than
+`Talents.TeleportYards` (200) is treated as a teleport and earns nothing. **Dive is the entry branch and
+is always open**; the Glide and Wings branches open only when
 the 1-point bridge beside them is ranked. **13 points is the lifetime cap** (`Talents.MaxPoints`): a
 full branch costs 10 (3+3+3+1), each bridge costs 1, so 13 is a whole branch, both bridges and the
 first point they unlock in the branch next door.
@@ -195,8 +197,9 @@ ever shorten the tree. The panel's bar shows the 13-step progress and the yards 
   Idle players are not walking around with the server's global speeds.
 - **Persistence.** `character_speedflying` holds lifetime points and the sub-point yard fraction;
   `character_speedflying_talents` holds one row per unrefunded rank. Unspent points are derived
-  (`points - SUM(rank)`) and never stored, so the two cannot drift. Dirty rows are flushed on a 20 s
-  timer, on logout and on world shutdown. Respec (`WXLTT\tR\t<b1|b2|b3|A>`) is free by default and
+  (`points - SUM(rank)`) and never stored, so the two cannot drift. Dirty rows are flushed on a
+  `Talents.FlushMs` (20 s) timer, on logout and on world shutdown. Respec (`WXLTT\tR\t<b1|b2|b3|A>`) is
+  free by default and
   takes the `Talents.RespecCost` if set; it refuses rather than half-applies when the money is missing.
   Deleting a character deletes both of its rows, so a recycled guid cannot inherit a tree.
 Points are keyed on the character's low guid (`characters.guid`, i.e. `GetGUID().GetCounter()`), and the
@@ -233,11 +236,14 @@ ManaSpeedFlying.SpeedCapPct  = 1600.0 ; ceiling a talent may raise a base state 
 
 ; Talent tree (see "The talent tree" below; every effect is a percentage of the key above it)
 Talents.Enable             = 1   ; master switch for earning and spending
-Talents.MaxPoints          = 12  ; lifetime cap on earned points
+Talents.MaxPoints          = 13  ; lifetime cap on earned points
 Talents.BaseYards          = 500.0 ; yards for the first point
 Talents.YardStep           = 1.0   ; each point after the first costs this much more (1.0 = doubles)
 Talents.MaxPointsPerMinute = 4   ; rolling-window cap; 0 = uncapped
 Talents.RespecCost         = 0   ; copper per respec; 0 = free
+Talents.FlushMs            = 20000 ; how often dirty points/ranks are written back
+Talents.TeleportYards      = 200.0 ; a tick longer than this is a teleport, not flight
+Talents.DiveAccrual        = 1.5 ; distance multiplier while diving
 ```
 
 - **BlendMs** is the time for the *whole* climb-to-dive span. The rate is linear, so a smaller

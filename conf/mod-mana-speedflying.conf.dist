@@ -256,8 +256,9 @@ Talents.MaxPoints = 13
 #        Description: Yards of flight that earn the *first* talent point. Every point after it costs
 #                     Talents.YardStep more than the point before, so the tree gets longer as it fills:
 #                     with the default 1.0 the curve doubles -- 500, 1000, 2000 ... yd, about 8.2M
-#                     yards for all 13. A dive counts as 1.5x its distance (fixed, so diving pays best).
-#                     Glide talent 7 (Slipstream, 3 ranks) shortens the step by 12% per rank -- it
+#                     yards for all 13. A dive counts as Talents.DiveAccrual times its distance (1.5
+#                     by default, so diving pays best). Glide talent 7 (Slipstream, 3 ranks) shortens
+#                     the step by 12% per rank -- it
 #                     shortens the curve, it does not bank yards faster. Lower BaseYards or YardStep to
 #                     make the tree faster to fill.
 #        Default:     500.0
@@ -279,8 +280,9 @@ Talents.YardStep = 1.0
 #
 #    Talents.MaxPointsPerMinute
 #        Description: Most points one character may earn in a rolling minute. Without it an AFK orbit
-#                     is the whole economy. The window decays on each rollover rather than resetting,
-#                     so a boundary is not a cliff. 0 removes the cap.
+#                     is the whole economy. Each point leaves the window exactly 60 s after it was
+#                     paid rather than the window resetting, so a steady flight earns this many a
+#                     minute for as long as it flies. 0 removes the cap.
 #        Default:     4
 #
 
@@ -295,6 +297,36 @@ Talents.MaxPointsPerMinute = 4
 #
 
 Talents.RespecCost = 0
+
+#
+#    Talents.FlushMs
+#        Description: How often (ms) the dirty points/ranks of every online character are written
+#                     back to the character database. A graceful logout and a world shutdown flush
+#                     too, so this is only the ceiling on what a server crash can cost.
+#        Default:     20000
+#
+
+Talents.FlushMs = 20000
+
+#
+#    Talents.TeleportYards
+#        Description: A single accrual tick covering more yards than this is a teleport, a login
+#                     adoption or a taxi handover, not flight, and earns nothing. Raise it only for
+#                     builds whose legitimate per-tick distance can exceed it.
+#        Default:     200.0
+#
+
+Talents.TeleportYards = 200.0
+
+#
+#    Talents.DiveAccrual
+#        Description: Distance multiplier while diving: 1.5 means a yard flown heading down earns
+#                     1.5 yards toward the next point, which is what makes diving pay best. 1.0
+#                     removes the bonus.
+#        Default:     1.5
+#
+
+Talents.DiveAccrual = 1.5
 
 #
 #    ManaSpeedFlying.SpeedCapPct

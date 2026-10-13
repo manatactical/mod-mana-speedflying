@@ -401,8 +401,10 @@ namespace
         bool     dirty      = false;        // something to write back
         bool     loaded     = false;        // the two tables have been read
         uint32   accMs      = 0;            // ms since the last flush check
-        uint32   recentPoints = 0;          // points paid inside the rolling window below
-        uint32   windowMs   = 0;            // ms left in that window
+        // The rolling minute's cap counts the points paid inside it, oldest first, so the sample
+        // that leaves the window is the one dropped. Halving the count every minute instead (the
+        // earlier decay) held an unbroken flight at half the configured rate.
+        std::vector<uint32> recentMs;       // age in ms of each point paid inside the window
         // The partial point the progress bar last showed (a permille), so a bar tick that moved it can
         // push a tally once. A points change forces one regardless.
         uint32   shownPartial = 0;
@@ -665,9 +667,9 @@ namespace
     // BoostCarryPct of the added speed is not part of that offset: it is folded into the running
     // transition (or banked until a climb levels out) instead, so it bleeds off over the ordinary
     // glide and the boost still pays speed seconds after the burst is gone. There is no cooldown, so
-    // held stacks can be chained. `abort` is D5 Aftershock: the carry is kept but the burst does not
-    // fade, so releasing the key into a dive hands the whole boost to the dive at once.
-    void ActivateBoost(PlayerState& st, const Config& c, bool abort = false)
+    // held stacks can be chained. D5 Aftershock is not a second activation: it folds the live burst
+    // into the running transition (see CommitBoost), so releasing the key spends no further stack.
+    void ActivateBoost(PlayerState& st, const Config& c)
     {
         if (!st.eligible || st.stacks <= 0)
             return;
@@ -725,14 +727,34 @@ namespace
             carry = 0.0f;
 
         // Add to any boost still fading so chained stacks build one bigger burst instead of replacing.
-        // Aftershock folds the whole burst into the base and leaves nothing to fade: the speed is
-        // committed to whatever transition is running instead of bleeding off over BoostFadeMs.
-        st.boostStart    = abort ? 0.0f : st.boostOffset + (add - carry);
+        st.boostStart    = st.boostOffset + (add - carry);
         st.boostOffset   = st.boostStart;
         st.boostElapsed  = 0;
-        st.boostDuration = abort ? 0 : c.boostFadeMs;
-        if (abort)
-            st.current += add - carry;
+        st.boostDuration = c.boostFadeMs;
+    }
+
+    // D5 Aftershock: the boost key came up while the burst is still fading, so the burst is committed
+    // to the running transition now instead of bleeding off over BoostFadeMs. No stack is spent -- the
+    // key press that started the boost already paid for it -- so a diver whose stock is empty can
+    // still land the burst it is riding. The transition is restarted from the committed rate because
+    // folding into `current` alone is not durable: the update tick recomputes `current` from
+    // start/target/elapsed, and would erase the commit on the very next frame.
+    void CommitBoost(PlayerState& st, const Config& c)
+    {
+        if (st.boostOffset <= 0.0f)
+            return; // the fade is already empty: nothing to commit, and restarting the curve would hurt
+        st.current       = std::min(c.boostSpeed, st.current + st.boostOffset);
+        st.start         = st.current;
+        st.target        = RateFor(c, st.motion);
+        st.elapsed       = 0;
+        // A full dive accel is too long for a nudge that is already at the dive ceiling, so the
+        // handoff keeps the usual span-proportional blend back down to the state rate.
+        st.duration      = ScaledMs(c.diveMs, st.start - st.target, std::fabs(c.diveSpeed - c.climbSpeed));
+        st.curve         = Curve::Dive;
+        st.boostStart    = 0.0f;
+        st.boostOffset   = 0.0f;
+        st.boostElapsed  = 0;
+        st.boostDuration = 0;
     }
 
     // Records the state a link message named. The first message on a mount snaps the applied rate so
@@ -752,6 +774,8 @@ namespace
             st.duration  = 0;
             st.curve     = Curve::Linear;
             st.fromDive  = false;
+            st.settling  = false;
+            st.settleAccum = 0;
             st.pendingCarry = 0.0f;
             st.lastSent  = -1.0f;
             st.sendAccum = c.sendMs; // force the first packet out on the next update
@@ -763,7 +787,11 @@ namespace
             st.target = RateFor(c, m); // heartbeat: keep the running transition going
             return;
         }
-        // A real state change: start a fresh transition from wherever the speed is now.
+        // A real state change: start a fresh transition from wherever the speed is now. It also
+        // cancels a pending Skyward settle -- the state the player just chose outranks the elevated
+        // level-out, and a settle left armed would pull the new transition back to levelSpeed.
+        st.settling    = false;
+        st.settleAccum = 0;
         const Motion prev = st.motion;
         if (m == Motion::Climb)
             st.fromDive = (prev == Motion::Dive);
@@ -886,7 +914,7 @@ namespace
         if (!st.eligible || !st.boostDuration || st.motion != Motion::Dive)
             return; // only a live boost released straight into a dive
 
-        ActivateBoost(st, pit->second.eff, true);
+        CommitBoost(st, pit->second.eff);
         st.sendAccum = pit->second.eff.sendMs; // push the folded speed out at once
     }
 
@@ -993,11 +1021,8 @@ namespace
                     SendTalentRefusal(player, "tier-locked");
                     return;
                 }
-        if (p.points >= g_talentCfg.maxPoints)
-        {
-            SendTalentRefusal(player, "all-spent");
-            return;
-        }
+        // Only unspent points can be spent -- never the lifetime count, or a character that earned
+        // the cap and then respecced could never spend the points the refund gave back.
         if (p.Unspent() <= 0)
         {
             SendTalentRefusal(player, "no-points");
@@ -1081,22 +1106,24 @@ namespace
     //   WXLTT\tW\t<talentId>   WXLTT\tR\t<b1|b2|b3|A>   WXLTT\tQ
     void HandleTalentMessage(Player* player, const std::string& msg)
     {
+        const size_t op = 6;
+        if (msg.size() <= op)
+            return;
+
+        // The 'Q' tally request only reads and is answered on foot too, so the mounted gate below
+        // covers W and R alone -- an unmounted player still gets the panel's refresh.
+        const uint64 guid = player->GetGUID().GetRawValue();
+        std::lock_guard<std::mutex> guard(g_lock);
+
         if (!g_talentCfg.enabled)
         {
             SendTalentRefusal(player, "disabled");
             return;
         }
 
-        const size_t op = 6;
-        if (msg.size() <= op)
-            return;
-
         // Only mounted flight earns and only a mount spends: a respec while riding a ground mount is
         // still fine, but an on-foot character cannot touch the tree.
-        const uint64 guid = player->GetGUID().GetRawValue();
-        std::lock_guard<std::mutex> guard(g_lock);
-
-        if (!player->IsMounted())
+        if (msg[op] != 'Q' && !player->IsMounted())
         {
             SendTalentRefusal(player, "not-mounted");
             return;
@@ -1318,14 +1345,14 @@ public:
                                 break;
                             }
                             if (g_talentCfg.maxPointsPerMinute &&
-                                progress.recentPoints >= g_talentCfg.maxPointsPerMinute)
+                                progress.recentMs.size() >= g_talentCfg.maxPointsPerMinute)
                                 break; // the rolling cap: an AFK orbit is not the whole economy
                             const double need = PointYards(progress.points, progress.tree);
                             if (progress.yardPartial < need)
                                 break;
                             progress.yardPartial -= need;
                             progress.points++;
-                            progress.recentPoints++;
+                            progress.recentMs.push_back(0);
                             progress.dirty = true;
                             LOG_INFO("modules", "mod-mana-speedflying: {} earned talent point {}",
                                      guid, progress.points);
@@ -1337,12 +1364,12 @@ public:
             progress.lastY = y;
             progress.lastZ = z;
             progress.havePos = earning;
-            progress.windowMs += p_time;
-            if (progress.windowMs >= 60000)
-            {
-                progress.windowMs -= 60000;
-                progress.recentPoints /= 2; // decay rather than reset, so a boundary is not a cliff
-            }
+            // The rolling minute: age every sample that paid a point and drop the ones that have
+            // just left the window, so an unbroken flight keeps earning MaxPointsPerMinute a minute.
+            for (uint32& age : progress.recentMs)
+                age += p_time;
+            while (!progress.recentMs.empty() && progress.recentMs.front() >= 60000)
+                progress.recentMs.erase(progress.recentMs.begin());
         }
 
         auto it = g_states.find(guid);
@@ -1548,13 +1575,14 @@ public:
         LoadProgress(guid, p);
 
         std::lock_guard<std::mutex> guard(g_lock);
-        // A reconnect can win the race against a slow logout; an entry already there keeps its ranks,
-        // so only a cleanly absent player is replaced.
+        // A reconnect can win the race against a slow logout; an entry already there keeps its ranks.
+        // An entry the update path minted as a placeholder carries no row, so it is replaced -- only
+        // marking it loaded would let the next write-back overwrite the stored tree with zeros.
         auto it = g_progress.find(guid);
         if (it == g_progress.end())
             g_progress.emplace(guid, std::move(p));
-        else
-            it->second.loaded = true;
+        else if (!it->second.loaded)
+            it->second = std::move(p);
     }
 
     // The link state and the progress map both go on logout: the state is volatile, the progress is
@@ -1638,6 +1666,9 @@ public:
         tc.maxPoints      = sConfigMgr->GetOption<uint32>("Talents.MaxPoints", 13);
         tc.maxPointsPerMinute = sConfigMgr->GetOption<uint32>("Talents.MaxPointsPerMinute", 4);
         tc.respecCost     = sConfigMgr->GetOption<uint32>("Talents.RespecCost", 0);
+        tc.flushMs        = sConfigMgr->GetOption<uint32>("Talents.FlushMs", 20000);
+        tc.teleportYards  = sConfigMgr->GetOption<float>("Talents.TeleportYards", 200.0f);
+        tc.diveAccrual    = sConfigMgr->GetOption<float>("Talents.DiveAccrual", 1.5f);
 
         float speedCapPct = sConfigMgr->GetOption<float>("ManaSpeedFlying.SpeedCapPct", 1600.0f);
         speedCapPct = std::max(10.0f, speedCapPct);
@@ -1663,6 +1694,7 @@ public:
         if (!tc.maxPoints) tc.maxPoints = 13;
         tc.maxPoints = std::min(tc.maxPoints, 64u); // 13 is the shipped default; this only guards a typo
         if (tc.teleportYards < 50.0f) tc.teleportYards = 50.0f;
+        tc.diveAccrual = std::max(0.0f, tc.diveAccrual);
 
         // Publish the new config and drop every link under the lock readers take. The entries are kept
         // (only marked ineligible) so the update path can restore each mount's own speed: clearing the
