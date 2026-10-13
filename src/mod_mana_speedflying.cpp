@@ -496,7 +496,8 @@ namespace
         p.loaded = true;
     }
 
-    // Writes the progress row, the ranks that changed and nothing else. The caller holds g_lock.
+    // Writes the progress row, the ranks that changed and nothing else. Clears `dirty` on whatever it
+    // is handed: a caller writing a snapshot under the lock must clear the live flag itself.
     void WriteProgress(uint64 guid, Progress& p)
     {
         CharacterDatabase.Execute(
@@ -518,7 +519,6 @@ namespace
         }
         p.dirty = false;
     }
-
 
     struct PlayerState
     {
@@ -582,7 +582,9 @@ namespace
 
     // The same flush with no lock held. The world thread's tick calls this: it copies the dirty rows
     // under the lock, releases it, and only then talks to the database, so a flushed character DB
-    // cannot stall another player's chat hook behind the mutex.
+    // cannot stall another player's chat hook behind the mutex. Writing a snapshot cannot be overtaken:
+    // this flush, every other write and every erase run on the world thread -- the login thread only
+    // ever inserts into the map, which is why the write works from a copy.
     void FlushAllProgressUnlocked()
     {
         std::vector<std::pair<uint64, Progress>> rows;
@@ -591,7 +593,13 @@ namespace
             rows.reserve(g_progress.size());
             for (auto& kv : g_progress)
                 if (kv.second.loaded && kv.second.dirty)
+                {
+                    // Clear the flag on the live entry: WriteProgress clears it on the copy it is
+                    // handed, so a write that skipped this would leave the row dirty for every tick
+                    // until it happened to land inside the lock again.
+                    kv.second.dirty = false;
                     rows.emplace_back(kv.first, kv.second);
+                }
         }
         // Writes run free of the lock; WriteProgress only needs its own copy.
         for (auto& r : rows)
