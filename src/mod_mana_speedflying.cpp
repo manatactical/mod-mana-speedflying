@@ -989,7 +989,7 @@ namespace
     // still needs. Both tail fields are appended *after* the pairs on purpose: a client that scans the
     // pairs breaks out on a field it cannot read, so it keeps every rank and only loses the bar.
     // Only a rank or a point count can change here -- the bar moves on its own and rides SendTalentBar.
-    void SendTalentTally(Player* player, const Progress& p)
+    void SendTalentTally(Player* player, Progress& p)
     {
         char body[512];
         int n = std::snprintf(body, sizeof(body), "T:%u,%d,%d", p.points, p.Spent(), p.Unspent());
@@ -1007,9 +1007,13 @@ namespace
         if (n < static_cast<int>(sizeof(body)) - 32)
         {
             const double need = p.points < g_talentCfg.maxPoints ? PointYards(p.points, p.tree) : 0.0;
+            p.shownPartial = PartialPermille(p.points, p.yardPartial, p.tree);
             std::snprintf(body + n, sizeof(body) - static_cast<size_t>(n), ",P%u,N%.0f",
-                          PartialPermille(p.points, p.yardPartial, p.tree), need);
+                          p.shownPartial, need);
         }
+        // The bar has just been drawn from this body, so record it: without this the next tick would
+        // see a point count it has not shown and answer a tally that only repeats what we just sent.
+        p.shownPoints = p.points;
         SendTalentLine(player, body);
     }
 
@@ -1651,8 +1655,6 @@ public:
                 // A point was paid on this tick: the count, the unspent total and the next point's
                 // cost all moved, so that one gets a tally. It is a rare event -- the caps allow a
                 // handful a minute -- so the pairs cost nothing over the bar ticks between them.
-                progress.shownPartial = partial;
-                progress.shownPoints  = progress.points;
                 SendTalentTally(player, progress);
             }
             else if (partial != progress.shownPartial)
