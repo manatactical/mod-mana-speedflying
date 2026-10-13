@@ -31,11 +31,15 @@
  *   client -> server:  WXLTT\tW\t<talentId>   learn one rank
  *                      WXLTT\tR\t<1|2|3|A>    refund a branch (or A for everything)
  *                      WXLTT\tQ                request the tree
- *   server -> client:  WXLTT\tT\t<points>,<spent>,<unspent>[,<id>:<rank>,...][,P<permille>]
+ *   server -> client:  WXLTT\tT\t<points>,<spent>,<unspent>[,<id>:<rank>,...][,P<permille>,N<yards>]
+ *                      WXLTT\tP\t<permille>,<yards>   the partial point alone, for the progress bar
  *                      WXLTT\tF\t<reason>     a refusal, echoed for the panel
  *
- * The tally is also re-sent while a partial point accrues (about twice a second, when the permille
- * it carries moves), which is what keeps the client's progress bar honest.
+ * The tally rides a spend, a refund or a 'Q' -- anything that can move a rank. The partial point moves
+ * on its own, about twice a second while flight accrues yards, and answering that with a whole tally
+ * (every rank pair, several hundred bytes) is what made the module chatty. 'P' carries the two bar
+ * fields and nothing else, so the same information costs tens of bytes. A client that does not know
+ * 'P' ignores the body and keeps the bar it last drew.
  *
  * Points are earned per character by flying: yards travelled on an AdvFly mount while the link is
  * up, at Talents.YardsPerPoint per whole point, capped per rolling minute. Ranks are authoritative
@@ -218,7 +222,7 @@ namespace
         uint32 glideMs      = 18000; // long ease-in glide from a dive back to level
         uint32 climbDecelMs = 3500;  // dive -> climb: hold the dive speed, then brake hard
         uint32 hoverMs      = 500;   // short accel/decel zone leaving a hover
-        uint32 sendMs       = 150;   // how often the blended speed may reach the client
+        uint32 sendMs       = 100;   // how often the blended speed may reach the client
         uint32 timeoutMs    = 2500;  // drop the link if no message arrives for this long
         float  boostAdd     = 4.0f;  // 400%: the speed one boost adds back to the glide
         float  boostSpeed   = 16.0f; // 1600%: hard ceiling a boost may lift the speed to
@@ -969,10 +973,22 @@ namespace
         player->SendDirectMessage(&data);
     }
 
+    // The progress bar on its own: the partial point as a permille of the point being paid for, then
+    // the yards that point still needs. This is the body that used to be the tally's tail, split out
+    // so a bar tick does not drag every rank pair along with it -- the tail is on a ~500 ms cadence
+    // for as long as the mount is banking yards, and the pairs are the bulk of a tally.
+    void SendTalentBar(Player* player, uint32 permille, double need)
+    {
+        char body[64];
+        std::snprintf(body, sizeof(body), "P:%u,%.0f", permille, need);
+        SendTalentLine(player, body);
+    }
+
     // The authoritative tally: lifetime points, points spent and unspent, then one id:rank pair per
     // talent the character owns, then the partial point as a permille and the yards the next point
     // still needs. Both tail fields are appended *after* the pairs on purpose: a client that scans the
     // pairs breaks out on a field it cannot read, so it keeps every rank and only loses the bar.
+    // Only a rank or a point count can change here -- the bar moves on its own and rides SendTalentBar.
     void SendTalentTally(Player* player, const Progress& p)
     {
         char body[512];
@@ -1598,15 +1614,20 @@ public:
         if (st.sendAccum >= eff.sendMs || settled)
         {
             st.sendAccum = 0;
-            if (applied != st.lastSent)
+            // Quantize before the compare: the blend moves by hundredths and a spline broadcast per
+            // hundredth is pure churn. The client ramps between what it is told, so the wire value is
+            // authority only -- a coarser step is invisible on the bar and much cheaper to broadcast.
+            const float quantized = std::round(applied * 100.0f) * 0.01f;
+            if (quantized != st.lastSent)
             {
-                player->SetSpeed(MOVE_FLIGHT, applied, true);
-                st.lastSent = applied;
+                player->SetSpeed(MOVE_FLIGHT, quantized, true);
+                st.lastSent = quantized;
             }
         }
 
-        // A stack gained while diving is pushed at once, so the client button never lags the count the
-        // next boost will actually spend.
+        // A stack change is pushed at once, so the client button never lags the count the next boost
+        // will actually spend. Only a point count or a rank pair needs the whole tally; the bar's own
+        // movement rides the 'P' body below.
         if (st.stacks != prevStacks)
             SendSpeedAnnounce(player, eff, st.stacks, st.stackAccum, st.stackInterval);
 
@@ -1618,18 +1639,29 @@ public:
             g_flushWanted = true; // the write rides the world tick, never this lock
         }
 
-        // The talent bar's fill. Nothing else tells the client how far along the partial point is (a
-        // tally only arrives on a change), so a tally is re-sent when it moves, on a coarse floor.
-        // Sending the tally, rather than a second opcode, keeps one shape for the client to parse.
+        // The talent bar's fill. The bar has no other way to see the partial point move, so it is
+        // announced on a coarse floor when the permille changes -- but it is the bar alone, two fields,
+        // not the tally's rank pairs. A tally is for a rank or a point, and both already send one.
         if ((progress.progMs += p_time) >= 500)
         {
             progress.progMs = 0;
             const uint32 partial = PartialPermille(progress.points, progress.yardPartial, progress.tree);
-            if (partial != progress.shownPartial || progress.points != progress.shownPoints)
+            if (progress.points != progress.shownPoints)
             {
+                // A point was paid on this tick: the count, the unspent total and the next point's
+                // cost all moved, so that one gets a tally. It is a rare event -- the caps allow a
+                // handful a minute -- so the pairs cost nothing over the bar ticks between them.
                 progress.shownPartial = partial;
                 progress.shownPoints  = progress.points;
                 SendTalentTally(player, progress);
+            }
+            else if (partial != progress.shownPartial)
+            {
+                progress.shownPartial = partial;
+                const double need = progress.points < g_talentCfg.maxPoints
+                                        ? PointYards(progress.points, progress.tree)
+                                        : 0.0;
+                SendTalentBar(player, partial, need);
             }
         }
     }
@@ -1732,7 +1764,7 @@ public:
         cfg.glideMs      = sConfigMgr->GetOption<uint32>("ManaSpeedFlying.GlideMs", 18000);
         cfg.climbDecelMs = sConfigMgr->GetOption<uint32>("ManaSpeedFlying.ClimbDecelMs", 3500);
         cfg.hoverMs      = sConfigMgr->GetOption<uint32>("ManaSpeedFlying.HoverMs", 500);
-        cfg.sendMs       = sConfigMgr->GetOption<uint32>("ManaSpeedFlying.SendMs", 150);
+        cfg.sendMs       = sConfigMgr->GetOption<uint32>("ManaSpeedFlying.SendMs", 100);
         cfg.timeoutMs    = sConfigMgr->GetOption<uint32>("ManaSpeedFlying.TimeoutMs", 2500);
         cfg.boostAdd     = sConfigMgr->GetOption<float>("ManaSpeedFlying.BoostAdd", 4.0f);
         cfg.boostSpeed   = sConfigMgr->GetOption<float>("ManaSpeedFlying.BoostSpeed", 16.0f);

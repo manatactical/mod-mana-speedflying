@@ -110,11 +110,14 @@ ManaSpeedFlying.HoverMs = 500
 #
 #    ManaSpeedFlying.SendMs
 #        Description: Shortest interval, in milliseconds, between two flight-speed updates sent to
-#                     the client while blending. Smaller is smoother but chattier.
-#        Default:     150
+#                     the client while blending. Smaller is smoother but chattier. Each update that
+#                     changes the applied rate is also broadcast to everyone in range, so the blend is
+#                     quantized to 0.01 before the compare: the client ramps between the values it is
+#                     given, so a coarser step is invisible on its bar and costs fewer packets.
+#        Default:     100
 #
 
-ManaSpeedFlying.SendMs = 150
+ManaSpeedFlying.SendMs = 100
 
 #
 #    ManaSpeedFlying.TimeoutMs

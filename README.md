@@ -84,7 +84,8 @@ client -> server:  WXLTT<TAB>W<TAB><talentId>   learn one rank
                    WXLTT<TAB>R<TAB><b1|b2|b3>      refund one branch
                    WXLTT<TAB>R<TAB>A              refund the whole tree
                    WXLTT<TAB>Q                  request the current tree
-	server -> client:  WXLTT<TAB>T<TAB><points>,<spent>,<unspent>[,<id>:<rank>,...][,P<permille>]
+	server -> client:  WXLTT<TAB>T<TAB><points>,<spent>,<unspent>[,<id>:<rank>,...][,P<permille>,N<yards>]
+                   WXLTT<TAB>P<TAB><permille>,<yards>   the partial point alone, for the progress bar
                    WXLTT<TAB>F<TAB><reason>     a refusal, echoed for the panel
 ```
 
@@ -92,11 +93,16 @@ The tally's trailing `id:rank` pairs are a list, so a new talent needs no protoc
 `F` reply means a refusal is always answered rather than silently dropped -- that is what stops the
 panel drifting out of step with the server. A tally is sent after every `W`, `R` and `Q`.
 
-The optional trailing `,P<permille>` is the partial point as thousandths, for the client's progress
-bar. It is appended **after** the rank pairs on purpose: a client parses a pair it cannot read as the
-end of the list, so an older panel keeps every rank and only loses the bar. The tally is also re-sent
-while a partial point accrues (at most twice a second, and only when the permille it carries moves),
-since the panel has no other way to see the number move.
+The optional trailing `,P<permille>,N<yards>` is the partial point as thousandths and the yards the
+next point still needs, for the client's progress bar. It is appended **after** the rank pairs on
+purpose: a client parses a pair it cannot read as the end of the list, so an older panel keeps every
+rank and only loses the bar.
+
+The bar moves on its own, so it gets its own body rather than a whole tally: `P` carries those two
+fields and nothing else, roughly every 500 ms while flight is banking yards and the permille changes.
+Answering that with a full tally would drag up to 17 `id:rank` pairs -- several hundred bytes -- along
+with two numbers, which is the bulk of what this module used to send. A tally now only goes out when a
+rank or a point count can have moved.
 
 Every write validates in this order, inside one lock: config enabled, the player is on a mount, the
 character has a progress row, the talent id is known, `rank + 1 <= maxRank`, the tier's pick is free
@@ -224,7 +230,7 @@ ManaSpeedFlying.DiveMs       = 4000   ; accelerate into a dive
 ManaSpeedFlying.GlideMs      = 18000  ; long glide from a dive back to level
 ManaSpeedFlying.ClimbDecelMs = 3500   ; dive -> climb: hold the speed, then brake hard
 ManaSpeedFlying.HoverMs      = 500    ; fixed accel/decel zone leaving a hover
-ManaSpeedFlying.SendMs       = 150
+ManaSpeedFlying.SendMs       = 100    ; blend step; each change is broadcast, so the rate is quantized to 0.01
 ManaSpeedFlying.TimeoutMs    = 2500   ; restore the mount's own speed if the link goes quiet
 ManaSpeedFlying.BoostAdd     = 4.0    ; 400%: speed one boost adds to the glide
 ManaSpeedFlying.BoostSpeed   = 16.0   ; 1600%: hard boost ceiling (raised to the fastest state
