@@ -29,6 +29,7 @@
  * The talent tree rides a second addon prefix, "WXLTT", so the link parser above is untouched:
  *
  *   client -> server:  WXLTT\tW\t<talentId>   learn one rank
+ *                      WXLTT\tB\t<id>:<target>[,<id>:<target>,...]   learn up to an absolute rank each
  *                      WXLTT\tR\t<1|2|3|A>    refund a branch (or A for everything)
  *                      WXLTT\tQ                request the tree
  *   server -> client:  WXLTT\tT\t<points>,<spent>,<unspent>[,<id>:<rank>,...][,P<permille>,N<yards>]
@@ -193,6 +194,16 @@ namespace
     bool IsBridge(int index)
     {
         return index >= 0 && index < kTalentCount && GateOpens(kTalents[index].id) != kBranchCount;
+    }
+
+    // Table index of a wire id, or -1. Both the single-rank and the batch path go through this, so an
+    // unknown id is refused identically either way.
+    int IndexOfTalentId(int id)
+    {
+        for (int i = 0; i < kTalentCount; ++i)
+            if (kTalents[i].id == id)
+                return i;
+        return -1;
     }
 
     enum class Motion
@@ -1023,6 +1034,59 @@ namespace
         SendTalentLine(player, std::string("F:") + reason);
     }
 
+    // Validates and applies one rank. Returns nullptr on success, or the refusal reason (a caller-owned
+    // literal) so the caller decides whether to answer each write or only the batch. One `F` per request
+    // is enough: the batch is retried as a whole, so it only needs the first stumble, not every one.
+    const char* ApplyTalentRank(Progress& p, int talentId)
+    {
+        const int index = IndexOfTalentId(talentId);
+        if (index < 0)
+            return "unknown-talent";
+
+        const TalentDef& t = kTalents[index];
+        if (p.tree.ranks[index] + 1 > static_cast<int>(t.maxRank))
+            return "max-rank";
+        // Only one talent of a (branch, tier) group may hold a rank: this is the tier-2 pick. An empty
+        // rival is not a refusal, it is an ordinary investment; a ranked rival needs a refund first.
+        // A bridge is exempt: it is the one talent of its tier that does not compete with the branch's
+        // own pick, so Still Air and Steep Descent can both be ranked.
+        if (!IsBridge(index))
+        {
+            for (int i = 0; i < kTalentCount; ++i)
+                if (i != index && !IsBridge(i) && kTalents[i].branch == t.branch &&
+                    kTalents[i].tier == t.tier && p.tree.ranks[i] > 0)
+                    return "tier-taken";
+        }
+        // The bridge beside a branch opens its tiers 3 and 4 only. Tiers 1 and 2 are walkable without
+        // it, so a player can start a branch and only then decide to bridge into it; before this the
+        // whole branch was gated, which made the panel's tier-1 nodes refuse. Dive is the entry branch
+        // and is always open, so its own gate never fires. Refused rather than dropped, so the panel
+        // shows why the tier went grey.
+        if (!IsBridge(index) && t.tier >= 3 && !p.tree.BranchOpen(t.branch))
+            return "tree-locked";
+        // A bridge bypasses the tier rules, not the branch it sits in: 17 lives in Glide, so Wings
+        // cannot be opened straight from Dive -- 16 must be bought first. Dive is the entry branch, so
+        // 16 itself passes. The client applies the same rule when it decides a node is clickable.
+        if (IsBridge(index) && !p.tree.BranchOpen(t.branch))
+            return "tree-locked";
+        // A bridge has no tier above it to unlock: it is the way in, not a step up.
+        if (!IsBridge(index))
+            for (uint8 r = 1; r < t.tier; ++r)
+                if (!p.tree.TierDone(t.branch, r))
+                    return "tier-locked";
+        // Only unspent points can be spent -- never the lifetime count, or a character that earned
+        // the cap and then respecced could never spend the points the refund gave back.
+        if (p.Unspent() <= 0)
+            return "no-points";
+
+        p.tree.ranks[index]++;
+        p.Rebuild(g_cfg, g_speedCapPct);
+        p.dirty = true;
+        LOG_INFO("modules", "mod-mana-speedflying: learnt talent {} (rank {}/{})", t.id,
+                 p.tree.ranks[index], t.maxRank);
+        return nullptr;
+    }
+
     // Every write validates in this order: a loaded progress row, the id, the rank ceiling, the
     // tier's pick, the tiers above it, the lifetime cap, then the derived unspent count -- which is
     // what makes a forged message cost exactly what a real one would.
@@ -1036,75 +1100,11 @@ namespace
         }
         Progress& p = it->second;
 
-        int index = -1;
-        for (int i = 0; i < kTalentCount; ++i)
-            if (kTalents[i].id == talentId)
-                index = i;
-        if (index < 0)
+        if (const char* why = ApplyTalentRank(p, talentId))
         {
-            SendTalentRefusal(player, "unknown-talent");
+            SendTalentRefusal(player, why);
             return;
         }
-
-        const TalentDef& t = kTalents[index];
-        if (p.tree.ranks[index] + 1 > static_cast<int>(t.maxRank))
-        {
-            SendTalentRefusal(player, "max-rank");
-            return;
-        }
-        // Only one talent of a (branch, tier) group may hold a rank: this is the tier-2 pick. An empty
-        // rival is not a refusal, it is an ordinary investment; a ranked rival needs a refund first.
-        // A bridge is exempt: it is the one talent of its tier that does not compete with the branch's
-        // own pick, so Still Air and Steep Descent can both be ranked.
-        if (!IsBridge(index))
-        {
-            for (int i = 0; i < kTalentCount; ++i)
-                if (i != index && !IsBridge(i) && kTalents[i].branch == t.branch &&
-                    kTalents[i].tier == t.tier && p.tree.ranks[i] > 0)
-                {
-                    SendTalentRefusal(player, "tier-taken");
-                    return;
-                }
-        }
-        // The bridge beside a branch opens its tiers 3 and 4 only. Tiers 1 and 2 are walkable without
-        // it, so a player can start a branch and only then decide to bridge into it; before this the
-        // whole branch was gated, which made the panel's tier-1 nodes refuse. Dive is the entry branch
-        // and is always open, so its own gate never fires. Refused rather than dropped, so the panel
-        // shows why the tier went grey.
-        if (!IsBridge(index) && t.tier >= 3 && !p.tree.BranchOpen(t.branch))
-        {
-            SendTalentRefusal(player, "tree-locked");
-            return;
-        }
-        // A bridge bypasses the tier rules, not the branch it sits in: 17 lives in Glide, so Wings
-        // cannot be opened straight from Dive -- 16 must be bought first. Dive is the entry branch, so
-        // 16 itself passes. The client applies the same rule when it decides a node is clickable.
-        if (IsBridge(index) && !p.tree.BranchOpen(t.branch))
-        {
-            SendTalentRefusal(player, "tree-locked");
-            return;
-        }
-        // A bridge has no tier above it to unlock: it is the way in, not a step up.
-        if (!IsBridge(index))
-            for (uint8 r = 1; r < t.tier; ++r)
-                if (!p.tree.TierDone(t.branch, r))
-                {
-                    SendTalentRefusal(player, "tier-locked");
-                    return;
-                }
-        // Only unspent points can be spent -- never the lifetime count, or a character that earned
-        // the cap and then respecced could never spend the points the refund gave back.
-        if (p.Unspent() <= 0)
-        {
-            SendTalentRefusal(player, "no-points");
-            return;
-        }
-
-        p.tree.ranks[index]++;
-        p.Rebuild(g_cfg, g_speedCapPct);
-        p.dirty = true;
-        LOG_INFO("modules", "mod-mana-speedflying: {} learnt talent {} (rank {}/{})",
-                 guid, t.id, p.tree.ranks[index], t.maxRank);
         SendTalentTally(player, p);
     }
 
@@ -1172,9 +1172,79 @@ namespace
         SendTalentTally(player, p);
     }
 
+    // Learn several ranks per message: one body for a whole Confirm instead of one W per rank and a
+    // round trip each. Entries are `id:target` pairs and `target` is the *absolute* rank wanted, not a
+    // delta: a resent batch is then the same request, so a dropped reply cannot double-spend. Ranks are
+    // applied one at a time in the listed order and every gate is re-checked each time, so a legal batch
+    // stays legal and an illegal one stops at the first refusal. One tally answers the whole batch, so
+    // the panel sees its tree change once rather than counting down.
+    void HandleTalentLearnBatch(Player* player, uint64 guid, const std::string& list)
+    {
+        auto it = g_progress.find(guid);
+        if (it == g_progress.end() || !it->second.loaded)
+        {
+            SendTalentRefusal(player, "no-progress");
+            return;
+        }
+        Progress& p = it->second;
+
+        const char* cur = list.c_str();
+        while (*cur)
+        {
+            char* end = nullptr;
+            const long id = std::strtol(cur, &end, 10);
+            if (end == cur || id < std::numeric_limits<int>::min() || id > std::numeric_limits<int>::max())
+            {
+                SendTalentRefusal(player, "bad-arg");
+                return;
+            }
+            cur = end;
+            if (*cur != ':')
+            {
+                SendTalentRefusal(player, "bad-arg");
+                return;
+            }
+            const long target = std::strtol(cur + 1, &end, 10);
+            // A rank cap is the only ceiling a batch entry needs; per-talent maxRank is enforced by the
+            // apply itself. A forged body cannot ask for a million ranks, but nothing here trusts it
+            // anyway -- ApplyTalentRank re-derives every gate from the live ranks.
+            if (end == cur + 1 || target < 0 || target > kTalentCount)
+            {
+                SendTalentRefusal(player, "bad-arg");
+                return;
+            }
+            cur = end;
+
+            const int index = IndexOfTalentId(static_cast<int>(id));
+            if (index < 0)
+            {
+                SendTalentRefusal(player, "unknown-talent");
+                return;
+            }
+            // Only climb. A target below the current rank is a refund, and refunds are the R op's job:
+            // ignoring it keeps a stale batch from silently unlearning something.
+            while (p.tree.ranks[index] < target)
+            {
+                if (const char* why = ApplyTalentRank(p, static_cast<int>(id)))
+                {
+                    SendTalentRefusal(player, why);
+                    return;
+                }
+            }
+            if (*cur == ',') ++cur;
+            else if (*cur)
+            {
+                SendTalentRefusal(player, "bad-arg");
+                return;
+            }
+        }
+        // Always answer, even on an empty body, so the panel redraws and never holds a stale count.
+        SendTalentTally(player, p);
+    }
+
     // Parses a "WXLTT" body. Everything arriving here is a *request*: the server decides. A refusal is
     // an answer, never a silent drop, so the client panel cannot drift out of step.
-    //   WXLTT\tW\t<talentId>   WXLTT\tR\t<b1|b2|b3|A>   WXLTT\tQ
+    //   WXLTT\tW\t<talentId>   WXLTT\tB\t<id>:<n>,...   WXLTT\tR\t<b1|b2|b3|A>   WXLTT\tQ
     void HandleTalentMessage(Player* player, const std::string& msg)
     {
         const size_t op = 6;
@@ -1223,6 +1293,14 @@ namespace
                 HandleTalentLearn(player, guid, static_cast<int>(id));
                 break;
             }
+            case 'B':
+                if (msg.size() <= op + 2 || msg[op + 1] != '\t')
+                {
+                    SendTalentRefusal(player, "bad-arg");
+                    break;
+                }
+                HandleTalentLearnBatch(player, guid, msg.substr(op + 2));
+                break;
             case 'R':
                 if (msg.size() <= op + 1)
                 {

@@ -81,6 +81,7 @@ working against this server. Append only; never reorder or renumber a field.
 
 ```
 client -> server:  WXLTT<TAB>W<TAB><talentId>   learn one rank
+                   WXLTT<TAB>B<TAB><id>:<target>[,<id>:<target>,...]   learn up to an absolute rank each
                    WXLTT<TAB>R<TAB><b1|b2|b3>      refund one branch
                    WXLTT<TAB>R<TAB>A              refund the whole tree
                    WXLTT<TAB>Q                  request the current tree
@@ -91,7 +92,14 @@ client -> server:  WXLTT<TAB>W<TAB><talentId>   learn one rank
 
 The tally's trailing `id:rank` pairs are a list, so a new talent needs no protocol change, and the
 `F` reply means a refusal is always answered rather than silently dropped -- that is what stops the
-panel drifting out of step with the server. A tally is sent after every `W`, `R` and `Q`.
+panel drifting out of step with the server. A tally is sent after every `W`, `B`, `R` and `Q`.
+
+`B` is the batch: a whole Confirm in one message, one `<id>:<target>` pair per staged talent, `target`
+being the **absolute** rank wanted rather than a delta. Absolute is what makes a resend idempotent --
+the server climbs each entry to its target and stops, so a duplicated message cannot double-spend. Each
+rank is still applied and validated one at a time in the listed order, so a batch that trips a gate
+(refusal `F`) stops there; one tally answers the whole batch. `W` is kept for an older client and for a
+single click.
 
 The optional trailing `,P<permille>,N<yards>` is the partial point as thousandths and the yards the
 next point still needs, for the client's progress bar. It is appended **after** the rank pairs on
