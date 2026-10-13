@@ -111,9 +111,11 @@ namespace
     };
 
     // Cost is 1 point per rank. Tiers 1 to 3 are three ranks each and tier 4 is a single-rank capstone,
-    // so filling one branch costs 10 of the 12 points a character can ever earn. A tier opens only once
+    // so filling one branch costs 10 of the 13 points a character can ever earn. A tier opens only once
     // every tier above it in the same branch is at its full rank, and only one talent of a (branch, tier)
     // group may hold a rank: that exclusivity is the tier-2 pick. Both rules live in HandleTalentLearn.
+    // The two 1-point bridges at tier 3 are exempt from both, and Dive is the entry branch every branch
+    // hangs off; see HandleTalentLearn for the exact order a write is validated in.
     // Append-only and never renumber -- the ids key the stored ranks -- and the client panel lays itself
     // out from these entries.
     const TalentDef kTalents[] =
@@ -151,9 +153,41 @@ namespace
           "Each boost adds 8% more speed per rank." },
         { 15, kBranchWings, 4, 1, E_ClimbDecel,       0.40f, "Rising Current",
           "A climb keeps 40% more of its entered speed." },
+        // The two bridges. One point each, and the rank is what opens the next branch (GateOpens): a
+        // talent in a closed branch is refused with "tree-locked". They sit beside the branch's own
+        // tier-3 talent but are excluded from TierDone and from the tier-pick rule, so the tier still
+        // completes on its one real talent and the capstone below it stays reachable -- and Steep
+        // Descent plus Still Air is legal instead of a rival pick. E_Count means "no server-side
+        // effect": the angle is a client-side threshold applied from the rank in the tally, exactly
+        // like 14 Smoothed Plumage.
+        // 10 degrees is the value: the level band is 15, and 15 + 10 = 25 is still clear of the 35
+        // that starts a dive, so one rank widens the glide without eating the dive band.
+        { 16, kBranchDive,  3, 1, E_Count, 0.0f, "Still Air",
+          "Glide 10 degrees steeper before it reads as a climb, and open the Glide branch." },
+        { 17, kBranchGlide, 3, 1, E_Count, 0.0f, "Tucked Wings",
+          "Shallow the dive threshold 10 degrees, and open the Wings branch." },
     };
 
     constexpr int kTalentCount = static_cast<int>(sizeof(kTalents) / sizeof(kTalents[0]));
+
+    // The bridge ids are the wire contract like every other id, and they are the unlock graph: a rank
+    // in 16 opens kBranchGlide, a rank in 17 opens kBranchWings. Dive is always open, so buying a
+    // bridge never needs the branch it opens to be open first.
+    constexpr uint16 kBridgeGlideId = 16;
+    constexpr uint16 kBridgeWingsId = 17;
+
+    // The branch a bridge opens, or kBranchCount for an ordinary talent.
+    uint8 GateOpens(uint16 id)
+    {
+        if (id == kBridgeGlideId) return kBranchGlide;
+        if (id == kBridgeWingsId) return kBranchWings;
+        return kBranchCount;
+    }
+
+    bool IsBridge(int index)
+    {
+        return index >= 0 && index < kTalentCount && GateOpens(kTalents[index].id) != kBranchCount;
+    }
 
     enum class Motion
     {
@@ -204,7 +238,8 @@ namespace
     struct TalentConfig
     {
         bool   enabled        = true;
-        uint32 maxPoints      = 12;     // lifetime cap: 12 points is a fully ranked 10-point branch plus 2
+        uint32 maxPoints      = 13;     // lifetime cap: a full 10-point branch, both 1-point bridges, and the
+                                        // point they open in the branch next door
         float  baseYards      = 500.0f; // yards of flight for the first point
         float  yardStep       = 1.00f;  // each point after the first needs twice the yards of the one before
         uint32 maxPointsPerMinute = 4;  // rolling-window cap; 0 disables (an AFK orbit is free)
@@ -236,6 +271,8 @@ namespace
 
         // Tiers open top down, and only the talents of the tier above matter: a tier is done when every
         // talent in it is at full rank, which is the same as "the tier's one findable talent is full".
+        // Bridges are skipped: they are extra, they sit at the same tier as the branch's real talent,
+        // and counting them would make a tier need 4 points and put the capstone out of reach.
         bool TierDone(int branch, uint8 tier) const
         {
             bool any = false;
@@ -243,12 +280,27 @@ namespace
             {
                 if (kTalents[i].branch != branch || kTalents[i].tier != tier)
                     continue;
+                if (IsBridge(i))
+                    continue;
                 any = true;
                 if (!AtMax(i))
                     return false;
             }
             return any;
         }
+
+        // The unlock graph: Dive is the entry branch and is always open; kBranchGlide opens on a rank
+        // in the Dive bridge (16) and kBranchWings on a rank in the Glide bridge (17).
+        bool BranchOpen(int branch) const
+        {
+            if (branch <= kBranchDive || branch >= kBranchCount)
+                return true;
+            for (int i = 0; i < kTalentCount; ++i)
+                if (GateOpens(kTalents[i].id) == branch && ranks[i] > 0)
+                    return true;
+            return false;
+        }
+    };
     };
 
     // The challenge curve lives here once and is read by the award loop. A point's Slipstream bonus
@@ -912,19 +964,36 @@ namespace
         }
         // Only one talent of a (branch, tier) group may hold a rank: this is the tier-2 pick. An empty
         // rival is not a refusal, it is an ordinary investment; a ranked rival needs a refund first.
-        for (int i = 0; i < kTalentCount; ++i)
-            if (i != index && kTalents[i].branch == t.branch && kTalents[i].tier == t.tier &&
-                p.tree.ranks[i] > 0)
-            {
-                SendTalentRefusal(player, "tier-taken");
-                return;
-            }
-        for (uint8 r = 1; r < t.tier; ++r)
-            if (!p.tree.TierDone(t.branch, r))
-            {
-                SendTalentRefusal(player, "tier-locked");
-                return;
-            }
+        // A bridge is exempt: it is the one talent of its tier that does not compete with the branch's
+        // own pick, so Still Air and Steep Descent can both be ranked.
+        if (!IsBridge(index))
+        {
+            for (int i = 0; i < kTalentCount; ++i)
+                if (i != index && !IsBridge(i) && kTalents[i].branch == t.branch &&
+                    kTalents[i].tier == t.tier && p.tree.ranks[i] > 0)
+                {
+                    SendTalentRefusal(player, "tier-taken");
+                    return;
+                }
+        }
+        // The bridge beside a branch opens its tiers 3 and 4 only. Tiers 1 and 2 are walkable without
+        // it, so a player can start a branch and only then decide to bridge into it; before this the
+        // whole branch was gated, which made the panel's tier-1 nodes refuse. Dive is the entry branch
+        // and is always open, so its own gate never fires. Refused rather than dropped, so the panel
+        // shows why the tier went grey.
+        if (!IsBridge(index) && t.tier >= 3 && !p.tree.BranchOpen(t.branch))
+        {
+            SendTalentRefusal(player, "tree-locked");
+            return;
+        }
+        // A bridge has no tier above it to unlock: it is the way in, not a step up.
+        if (!IsBridge(index))
+            for (uint8 r = 1; r < t.tier; ++r)
+                if (!p.tree.TierDone(t.branch, r))
+                {
+                    SendTalentRefusal(player, "tier-locked");
+                    return;
+                }
         if (p.points >= g_talentCfg.maxPoints)
         {
             SendTalentRefusal(player, "all-spent");
@@ -1566,7 +1635,8 @@ public:
         // Talents.YardStep more than the point before (1.0 = twice as much).
         tc.baseYards      = sConfigMgr->GetOption<float>("Talents.BaseYards", 500.0f);
         tc.yardStep       = sConfigMgr->GetOption<float>("Talents.YardStep", 1.0f);
-        tc.maxPoints      = sConfigMgr->GetOption<uint32>("Talents.MaxPoints", 12);
+        // 17 talents now, so the panel lays out the cap to the largest tree it can actually draw.
+        tc.maxPoints      = sConfigMgr->GetOption<uint32>("Talents.MaxPoints", 13);
         tc.maxPointsPerMinute = sConfigMgr->GetOption<uint32>("Talents.MaxPointsPerMinute", 4);
         tc.respecCost     = sConfigMgr->GetOption<uint32>("Talents.RespecCost", 0);
 
@@ -1591,8 +1661,8 @@ public:
         if (tc.baseYards < 1.0f) tc.baseYards = 1.0f;
         // A negative or huge step would make the curve non-monotonic or overflow the double.
         tc.yardStep = std::max(0.0f, std::min(tc.yardStep, 10.0f));
-        if (!tc.maxPoints) tc.maxPoints = 12;
-        tc.maxPoints = std::min(tc.maxPoints, 64u); // the panel lays out a fixed 13 slots
+        if (!tc.maxPoints) tc.maxPoints = 13;
+        tc.maxPoints = std::min(tc.maxPoints, 64u); // 13 is the shipped default; this only guards a typo
         if (tc.teleportYards < 50.0f) tc.teleportYards = 50.0f;
 
         // Publish the new config and drop every link under the lock readers take. The entries are kept

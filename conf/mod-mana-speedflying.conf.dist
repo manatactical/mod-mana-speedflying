@@ -242,19 +242,21 @@ Talents.Enable = 1
 #
 #    Talents.MaxPoints
 #        Description: Lifetime points one character may ever earn. Filling one branch costs 10 points
-#                     (3+3+3+1), so 12 leaves a whole branch plus two tiers of a second. At the cap the
-#                     yard meter stops charging and the panel says every point is earned.
-#        Default:     12
+#                     (3+3+3+1); the two 1-point bridges (16 Still Air, 17 Tucked Wings) cost 1 each
+#                     and are what open the Glide and Wings branches. 13 = a full 10-point branch +
+#                     both bridges + the first point they unlock next door. At the cap the yard meter
+#                     stops charging and the panel says every point is earned.
+#        Default:     13
 #
 
-Talents.MaxPoints = 12
+Talents.MaxPoints = 13
 
 #
 #    Talents.BaseYards
 #        Description: Yards of flight that earn the *first* talent point. Every point after it costs
 #                     Talents.YardStep more than the point before, so the tree gets longer as it fills:
-#                     with the default 1.0 the curve doubles -- 500, 1000, 2000 ... yd, about 2.05M
-#                     yards for all 12. A dive counts as 1.5x its distance (fixed, so diving pays best).
+#                     with the default 1.0 the curve doubles -- 500, 1000, 2000 ... yd, about 8.2M
+#                     yards for all 13. A dive counts as 1.5x its distance (fixed, so diving pays best).
 #                     Glide talent 7 (Slipstream, 3 ranks) shortens the step by 12% per rank -- it
 #                     shortens the curve, it does not bank yards faster. Lower BaseYards or YardStep to
 #                     make the tree faster to fill.
@@ -333,10 +335,22 @@ ManaSpeedFlying.SpeedCapPct = 1600.0
 #   11  Wings   2     Diving Wings           3  -10% ManaSpeedFlying.StackDiveIntervalMs per rank
 #   13  Wings   3     Iron Wings             3  +8%  ManaSpeedFlying.BoostAdd per rank
 #   15  Wings   4     Rising Current         1  +40% a climb keeps its entered speed
+#   16  Dive    3     Still Air              1  client-side: +10 degrees to the climb threshold,
+#                                              and opens the Glide branch
+#   17  Glide   3     Tucked Wings           1  client-side: the dive needs 10 degrees steeper,
+#                                              and opens the Wings branch
 #
 # Tier 1 in a branch is free to buy. Tiers 2 and 3 of a branch open only once the tier above them is at
 # full rank, so one branch costs 3+3+3+1 = 10 points to fill with one capstone. Tier 2 is a *pick*: of
 # the two talents in it only one may hold a rank at a time -- refund one before buying the other.
+#
+# The two bridges (16, 17) are the exception to both rules. They stand beside the branch's own tier-3
+# talent but do not count toward its completion and cannot be refused as its rival, so Shallow Pull and
+# Still Air can be ranked together and the capstone below stays reachable. A bridge itself needs no tier
+# above it: it is the way in. A point in 16 opens the Glide branch (id 6, 7, 8, 10 and 9 are refused
+# with 'tree-locked' until then), and a point in 17 opens Wings. Dive is the entry branch and is always
+# open, which is what keeps the graph acyclic. Refunding a bridge refunds the rank, never the points
+# spent in the branch it opened: those keep their rank and only stop accepting new ones.
 #
 # Held Breath and Rising Current both scale ClimbDecelMs. Their ranks are summed into one
 # multiplier, not compounded one after the other.

@@ -99,9 +99,10 @@ while a partial point accrues (at most twice a second, and only when the permill
 since the panel has no other way to see the number move.
 
 Every write validates in this order, inside one lock: config enabled, the player is on a mount, the
-character has a progress row, the talent id is known, `rank + 1 <= maxRank`, the tier's pick is free,
-every tier above it in the branch is at full rank, the lifetime cap, and only then the derived unspent
-count. A forged learn message therefore costs exactly what a real one would.
+character has a progress row, the talent id is known, `rank + 1 <= maxRank`, the tier's pick is free
+(skipped for a bridge), the branch is open, every tier above it in the branch is at full rank (skipped
+for a bridge), the lifetime cap, and only then the derived unspent count. A forged learn message
+therefore costs exactly what a real one would, and a forged bridge costs a point like any other rank.
 
 A tier opens top down inside its branch: tiers 2 and 3 need the tier above them full in *every* talent
 it holds, so filling a branch costs `3+3+3+1 = 10` points. Tier 2 is a **pick of two** -- the server
@@ -132,18 +133,20 @@ worldserver. The build copies `mod-mana-speedflying.conf.dist` into `configs/`; 
 
 ## The talent tree
 
-Each character earns **points** by flying on an AdvFly mount, and spends them on 15 talents in three
+Each character earns **points** by flying on an AdvFly mount, and spends them on 17 talents in three
 branches of four tiers. The server owns the tree: the client only renders it. A dive counts 1.5x its
 distance (so diving pays best), earning is capped per rolling minute by `Talents.MaxPointsPerMinute`
 (`0` removes the cap), and a tick covering more than 200 yards is treated as a teleport and earns
-nothing. **12 points is the lifetime cap** (`Talents.MaxPoints`): a full branch costs 10 (3+3+3+1),
-so 12 buys a whole branch plus two tiers of a second one.
+nothing. **Dive is the entry branch and is always open**; the Glide and Wings branches open only when
+the 1-point bridge beside them is ranked. **13 points is the lifetime cap** (`Talents.MaxPoints`): a
+full branch costs 10 (3+3+3+1), each bridge costs 1, so 13 is a whole branch, both bridges and the
+first point they unlock in the branch next door.
 
 The yard cost of each point rises: **`Talents.BaseYards` (500) for the first, then +`Talents.YardStep`
 (100%, the default) for every point after it** -- the step *doubles*: 500, 1000, 2000, 4000 ... yd,
-about 2.05M yards for all 12. Slipstream
+about 8.2M yards for all 13. Slipstream
 scales the *step* of the next point rather than the rate yards are banked at, so a rank in it can only
-ever shorten the tree. The panel's bar shows the 12-step progress and the yards still owed.
+ever shorten the tree. The panel's bar shows the 13-step progress and the yards still owed.
 
 | id | branch | tier | name | ranks | effect (percentage of the key above) |
 |----|--------|------|------|-------|---------------------------------------|
@@ -162,12 +165,27 @@ ever shorten the tree. The panel's bar shows the 12-step progress and the yards 
 | 11 | Wings | 2 | Diving Wings | 3 | `StackDiveIntervalMs` -10% per rank |
 | 13 | Wings | 3 | Iron Wings | 3 | `BoostAdd` +8% per rank |
 | 15 | Wings | 4 | Rising Current | 1 | `ClimbDecelMs` +40%: a climb keeps its entered speed |
+| 16 | Dive | 3 | Still Air | 1 | climb threshold 15° -> 25°, **and opens the Glide branch** |
+| 17 | Glide | 3 | Tucked Wings | 1 | dive threshold 35° -> 45°, **and opens the Wings branch** |
 
+- **Branch gate (`tree-locked`).** Dive is the entry branch and is always open. The Glide branch opens
+  on a rank in 16 Still Air; the Wings branch opens on a rank in 17 Tucked Wings. A talent in a closed
+  branch is refused, so the gate cannot be walked around by buying the branch directly.
 - **Tier gate.** Tier 1 is free to buy. Tiers 2 and 3 open only once the tier above them is at full
   rank (in every talent it holds), so a branch is 3+3+3+1 = 10 points. Tier 4 is a single-rank capstone.
+  Bridges (16, 17) are skipped by that rule: they sit beside their branch's own tier-3 talent and would
+  otherwise make the tier need 4 points and put the capstone out of reach. A bridge also needs no tier
+  above it -- it is the way in.
 - **Tier 2 is a pick.** Of the two talents in a tier-2 group only one may hold a rank; the server
   refuses the rival with `tier-taken`. Switch halves by resetting the branch (`Reset`, or right-click a
-  talent).
+  talent). A bridge is exempt -- it never competes with its branch's own pick, so Shallow Pull and Still
+  Air can be ranked together.
+- **A refund re-opens nothing.** Refunding a bridge refunds its rank only: points already spent in the
+  branch it opened keep their rank and merely stop accepting new ones until the bridge is bought again.
+  That is what keeps a respec from destroying a tree in one click.
+- **Both bridges are client-side.** They carry no `E_*` effect: the angle they widen is a client-side
+  threshold, so the ranks ride the tally like 14 Smoothed Plumage and the effect is applied by
+  `wxl-mana-speedflying`. The server-side consequence is exactly one row each -- the rank, not a speed.
 - **No effect is ever applied twice.** D2 and W15 both move `ClimbDecelMs`; their ranks are summed
   into one multiplier, not compounded. D3 is the only talent that raises a state speed, and the boost
   ceiling is derived from the fastest state -- so `SpeedCapPct` is applied to the base states *before*
