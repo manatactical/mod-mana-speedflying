@@ -301,7 +301,6 @@ namespace
             return false;
         }
     };
-    };
 
     // The challenge curve lives here once and is read by the award loop. A point's Slipstream bonus
     // scales its effective requirement rather than the rate yards are banked at, so a rank in it can
