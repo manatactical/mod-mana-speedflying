@@ -382,10 +382,13 @@ ManaSpeedFlying.SpeedCapPct = 1600.0
 # The two bridges (16, 17) are the exception to both rules. They stand beside the branch's own tier-3
 # talent but do not count toward its completion and cannot be refused as its rival, so Shallow Pull and
 # Still Air can be ranked together and the capstone below stays reachable. A bridge itself needs no tier
-# above it: it is the way in. A point in 16 opens the Glide branch (id 6, 7, 8, 10 and 9 are refused
-# with 'tree-locked' until then), and a point in 17 opens Wings. Dive is the entry branch and is always
-# open, which is what keeps the graph acyclic. Refunding a bridge refunds the rank, never the points
-# spent in the branch it opened: those keep their rank and only stop accepting new ones.
+# above it: it is the way in. A point in 16 opens the Glide branch and a point in 17 opens Wings; that
+# gate covers the opened branch's tier-4 capstone (9 Twin Vault, 15 Rising Current) and, for 17, the
+# bridge that sits in Glide. A branch's own tiers 1 to 3 do NOT need the bridge -- they open on the tier
+# above them being full -- so a branch can be filled up to tier 3 before its bridge is bought. Dive is the
+# entry branch and is always open, which is what keeps the graph acyclic. Refunding a bridge refunds the
+# rank, never the points spent in the branch it opened: those keep their rank and only stop accepting
+# new ones.
 #
 # Held Breath and Rising Current both scale ClimbDecelMs. Their ranks are summed into one
 # multiplier, not compounded one after the other.

@@ -1057,16 +1057,19 @@ namespace
                     kTalents[i].tier == t.tier && p.tree.ranks[i] > 0)
                     return "tier-taken";
         }
-        // The bridge beside a branch opens its tiers 3 and 4 only. Tiers 1 and 2 are walkable without
-        // it, so a player can start a branch and only then decide to bridge into it; before this the
-        // whole branch was gated, which made the panel's tier-1 nodes refuse. Dive is the entry branch
-        // and is always open, so its own gate never fires. Refused rather than dropped, so the panel
-        // shows why the tier went grey.
-        if (!IsBridge(index) && t.tier >= 3 && !p.tree.BranchOpen(t.branch))
+        // The bridge beside a branch opens its tier 4 only. Tiers 1 to 3 are walkable without it -- a
+        // branch's own tier 3 opens on its tier 1 and 2 being full (the tier gate below), not on the
+        // bridge -- so a player can finish a branch and only then decide to bridge into it. Gating tier
+        // 3 on the bridge made a filled branch refuse its own third tier with no way to satisfy it.
+        // Dive is the entry branch and is always open, so its own gate never fires. Refused rather than
+        // dropped, so the panel shows why the tier went grey.
+        if (!IsBridge(index) && t.tier >= 4 && !p.tree.BranchOpen(t.branch))
             return "tree-locked";
         // A bridge bypasses the tier rules, not the branch it sits in: 17 lives in Glide, so Wings
         // cannot be opened straight from Dive -- 16 must be bought first. Dive is the entry branch, so
         // 16 itself passes. The client applies the same rule when it decides a node is clickable.
+        // Unconditional on tier: both bridges are the point that opens the next branch, so their own
+        // branch is always required, whether or not the rule above exempted tier 3.
         if (IsBridge(index) && !p.tree.BranchOpen(t.branch))
             return "tree-locked";
         // A bridge has no tier above it to unlock: it is the way in, not a step up.

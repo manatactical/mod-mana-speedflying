@@ -154,8 +154,8 @@ branches of four tiers. The server owns the tree: the client only renders it. A 
 `Talents.MaxPointsPerMinute` (`0` removes the cap; a point leaves the window 60 s after it was paid, so
 a steady flight keeps earning at the configured rate), and a tick covering more than
 `Talents.TeleportYards` (200) is treated as a teleport and earns nothing. **Dive is the entry branch and
-is always open**; the Glide and Wings branches open only when
-the 1-point bridge beside them is ranked. **13 points is the lifetime cap** (`Talents.MaxPoints`): a
+is always open**; a branch's tiers 1 to 3 are buyable without a bridge, and only its tier-4 capstone opens
+when the 1-point bridge beside it is ranked. **13 points is the lifetime cap** (`Talents.MaxPoints`): a
 full branch costs 10 (3+3+3+1), each bridge costs 1, so 13 is a whole branch, both bridges and the
 first point they unlock in the branch next door.
 
@@ -186,12 +186,14 @@ ever shorten the tree. The panel's bar shows the 13-step progress and the yards 
 | 17 | Glide | 3 | Tucked Wings | 1 | dive threshold 35° -> 45°, **and opens the Wings branch** |
 
 - **Branch gate (`tree-locked`).** Dive is the entry branch and is always open. The Glide branch opens
-  on a rank in 16 Still Air; the Wings branch opens on a rank in 17 Tucked Wings. A talent in a closed
-  branch is refused, so the gate cannot be walked around by buying the branch directly. A bridge is
-  refused the same way when the branch it *sits in* is closed: 17 lives in Glide, so Wings cannot be
+  on a rank in 16 Still Air; the Wings branch opens on a rank in 17 Tucked Wings. The gate covers the
+  branch's **tier-4 capstone only** -- a branch's own tiers 1 to 3 are buyable without the bridge, so a
+  player can fill a branch and only then decide to bridge into the next one. A bridge is
+  refused when the branch it *sits in* is closed: 17 lives in Glide, so Wings cannot be
   opened straight from Dive -- 16 must be bought first. The graph is a chain, Dive -> 16 -> 17.
 - **Tier gate.** Tier 1 is free to buy. Tiers 2 and 3 open only once the tier above them is at full
-  rank (in every talent it holds), so a branch is 3+3+3+1 = 10 points. Tier 4 is a single-rank capstone.
+  rank (in every talent it holds), so a branch is 3+3+3+1 = 10 points. Tier 4 is a single-rank capstone
+  and is the one tier the branch gate above also covers.
   Bridges (16, 17) are skipped by that rule: they sit beside their branch's own tier-3 talent and would
   otherwise make the tier need 4 points and put the capstone out of reach. A bridge also needs no tier
   above it -- it is the way in.
