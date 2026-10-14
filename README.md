@@ -69,7 +69,10 @@ server has already accrued toward the next stack and the cadence it accrued them
 anchors the orb's recharge bar to that exact position on every announce and only interpolates
 locally in between, so a spent or newly granted stack does not restart the bar on the client. (An
 older server that omits the two fields leaves the client running its own clock.) The reply goes out
-on the first link message and again every few seconds (which also recovers a client UI reload), so
+on the first link message, whenever a stack is spent or granted, **whenever `maxStacks` changes** (Twin
+Vault raises it to 4, and the held count does not move when it does, so a count-only trigger never told
+the client and the orb row stayed at three), and again every few seconds (which also recovers a client
+UI reload), so
 changing `ManaSpeedFlying.DiveSpeed` on the server is enough -- no matching edit in
 `wxl-mana-speedflying.ini` is needed. If the module is not installed, the client falls back to its own
 `GlideSpeedPct` / `MaxSpeedPct` defaults.
@@ -295,7 +298,9 @@ Talents.DiveAccrual        = 1.5 ; distance multiplier while diving
 ### The button boost
 
 Boost stacks recharge on a timer: one every `StackIntervalMs` (9 s) in normal flight, or every
-`StackDiveIntervalMs` (3 s) while diving, up to `BoostMaxStacks`. The timer only runs while the mount
+`StackDiveIntervalMs` (3 s) while diving, up to `BoostMaxStacks`. Twin Vault raises that ceiling to 4, and
+the new ceiling is announced the moment the rank lands (see the `S:` body above), so the client's orb row
+grows to four then rather than after the next stack happens to be spent. The timer only runs while the mount
 is link-eligible (flying, AdvFly mount), so a grounded mount earns nothing. Each press of the client's
 boost button (can be used while climbing, diving or gliding level) spends one stack and adds `BoostAdd` (400% by
 default) to the mount's current speed, up to the `BoostSpeed` ceiling. There is no cooldown, so held

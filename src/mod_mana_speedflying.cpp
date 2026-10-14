@@ -582,6 +582,10 @@ namespace
         uint32 lastAnnounce = 0;          // ms of the last speed announce, for the slow resend
         uint32 lastMsgMs = 0;             // ms of the last non-boost state message, for the flood guard
         int    stacks = 0;                // boost stacks held (to g_cfg.boostStacks)
+        // The ceiling last announced to the client. Twin Vault (G9) raises it, and the stack count
+        // alone does not move when it does: the client polls `S:` and reads field 5 as MaxStacks, so
+        // without a resend the orb row stayed at three and the fourth stack had nowhere to appear.
+        int    lastMaxStacks = -1;
         uint32 stackAccum = 0;            // ms accrued toward the next boost stack
         uint32 stackInterval = 0;         // cadence stackAccum was accrued at; lets a switch rescale
         // A boost is an additive offset on the running transition, not a new transition of its own:
@@ -1495,8 +1499,13 @@ public:
                 }
             }
             if (announce)
+            {
+                // This announce carries the live ceiling too, so record it: otherwise the update tick
+                // would see lastMaxStacks stale and send a duplicate for the same change.
+                st.lastMaxStacks = eff.boostStacks;
                 SendSpeedAnnounce(player, eff, st.stacks, st.stackAccum,
                                   st.motion == Motion::Dive ? eff.stackDiveMs : eff.stackMs);
+            }
         }
     }
 
@@ -1772,10 +1781,15 @@ public:
         }
 
         // A stack change is pushed at once, so the client button never lags the count the next boost
-        // will actually spend. Only a point count or a rank pair needs the whole tally; the bar's own
-        // movement rides the 'P' body below.
-        if (st.stacks != prevStacks)
+        // will actually spend. The ceiling counts as a change in its own right: a talent that raises it
+        // (Twin Vault) leaves `stacks` where it was, so a count-only test never announced the new
+        // maximum and the client kept drawing three orbs. Only a point count or a rank pair needs the
+        // whole tally; the bar's own movement rides the 'P' body below.
+        if (st.stacks != prevStacks || eff.boostStacks != st.lastMaxStacks)
+        {
+            st.lastMaxStacks = eff.boostStacks;
             SendSpeedAnnounce(player, eff, st.stacks, st.stackAccum, st.stackInterval);
+        }
 
         // Flush the earned points on a timer, not on every award: a point is a row write, not a
         // per-tick event, and a crash between flushes costs only the partial point in memory.
