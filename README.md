@@ -114,10 +114,15 @@ rank or a point count can have moved.
 
 Every write validates in this order, inside one lock: config enabled, the player is on a mount, the
 character has a progress row, the talent id is known, `rank + 1 <= maxRank`, the tier's pick is free
-(skipped for a bridge), the branch is open, every tier above it in the branch is at full rank (skipped
-for a bridge), the bridge's *own* branch is open (a bridge is a gate, not a bypass), the lifetime cap,
-and only then the derived unspent count. A forged learn message
+(skipped for a bridge), the branch is open for a bridge and for a tier-1 entry only, every tier above it
+in the branch is at full rank (skipped for a bridge, which instead needs its own row full), the lifetime
+cap, and only then the derived unspent count. A forged learn message
 therefore costs exactly what a real one would, and a forged bridge costs a point like any other rank.
+
+A branch's tier-1 entry is gated by the bridge in the branch before it, so a batch that enters a branch
+must list that bridge first: a client sorts its staged targets by (branch, tier), which puts 16 Still
+Air inside the Dive group ahead of any Glide entry. A client that does not sort simply gets the entry
+refused and can Confirm again from a tree the first batch already advanced.
 
 A tier opens top down inside its branch: tiers 2 and 3 need the tier above them full in *every* talent
 it holds, so filling a branch costs `3+3+3+1 = 10` points. Tier 2 is a **pick of two** -- the server
@@ -187,16 +192,15 @@ ever shorten the tree. The panel's bar shows the 13-step progress and the yards 
 
 - **Branch gate (`tree-locked`).** Dive is the entry branch and is always open. The Glide branch opens
   on a rank in 16 Still Air; the Wings branch opens on a rank in 17 Tucked Wings. The gate covers the
-  branch's **tier-4 capstone only** -- a branch's own tiers 1 to 3 are buyable without the bridge, so a
-  player can fill a branch and only then decide to bridge into the next one. A bridge is
-  refused when the branch it *sits in* is closed: 17 lives in Glide, so Wings cannot be
+  branch's **tier 1 only**: a branch is entered through its bridge and its own tiers 1 to 4 then open top
+  down, so nothing inside a branch needs the bridge -- its tier-4 capstone opens on the branch's own 9
+  points. The bridge itself becomes buyable with its branch's tier-4 capstone (its own tier-3 row full).
+  A bridge is refused when the branch it *sits in* is closed: 17 lives in Glide, so Wings cannot be
   opened straight from Dive -- 16 must be bought first. The graph is a chain, Dive -> 16 -> 17.
-- **Tier gate.** Tier 1 is free to buy. Tiers 2 and 3 open only once the tier above them is at full
-  rank (in every talent it holds), so a branch is 3+3+3+1 = 10 points. Tier 4 is a single-rank capstone
-  and is the one tier the branch gate above also covers.
-  Bridges (16, 17) are skipped by that rule: they sit beside their branch's own tier-3 talent and would
-  otherwise make the tier need 4 points and put the capstone out of reach. A bridge also needs no tier
-  above it -- it is the way in.
+- **Tier gate.** Tier 1 is free to buy inside an open branch. Tiers 2, 3 and 4 open only once the tier
+  above them is at full rank (in every talent it holds), so a branch is `3+3+3+1 = 10` points.
+  Bridges (16, 17) are skipped by the rows above them (they are the way in) but need their own row full,
+  so they unlock with the capstone beside them.
 - **Tier 2 is a pick.** Of the two talents in a tier-2 group only one may hold a rank; the server
   refuses the rival with `tier-taken`. Switch halves by resetting the branch (`Reset`, or right-click a
   talent). A bridge is exempt -- it never competes with its branch's own pick, so Shallow Pull and Still

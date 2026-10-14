@@ -375,17 +375,18 @@ ManaSpeedFlying.SpeedCapPct = 1600.0
 #   17  Glide   3     Tucked Wings           1  client-side: the dive needs 10 degrees steeper,
 #                                              and opens the Wings branch
 #
-# Tier 1 in a branch is free to buy. Tiers 2 and 3 of a branch open only once the tier above them is at
-# full rank, so one branch costs 3+3+3+1 = 10 points to fill with one capstone. Tier 2 is a *pick*: of
-# the two talents in it only one may hold a rank at a time -- refund one before buying the other.
+# Tier 1 in a branch is free to buy once the branch is open. Tiers 2, 3 and 4 open only on the tier
+# above them being at full rank, so one branch costs 3+3+3+1 = 10 points to fill with one capstone.
+# Tier 2 is a *pick*: of the two talents in it only one may hold a rank at a time -- refund one before
+# buying the other.
 #
-# The two bridges (16, 17) are the exception to both rules. They stand beside the branch's own tier-3
-# talent but do not count toward its completion and cannot be refused as its rival, so Shallow Pull and
-# Still Air can be ranked together and the capstone below stays reachable. A bridge itself needs no tier
-# above it: it is the way in. A point in 16 opens the Glide branch and a point in 17 opens Wings; that
-# gate covers the opened branch's tier-4 capstone (9 Twin Vault, 15 Rising Current) and, for 17, the
-# bridge that sits in Glide. A branch's own tiers 1 to 3 do NOT need the bridge -- they open on the tier
-# above them being full -- so a branch can be filled up to tier 3 before its bridge is bought. Dive is the
+# The two bridges (16, 17) stand beside the branch's own tier-3 talent but do not count toward its
+# completion and cannot be refused as its rival, so Shallow Pull and Still Air can be ranked together
+# and the capstone beside them stays reachable. A bridge skips the rows above it (it is the way in) but
+# needs its own tier-3 row full, so it unlocks at the same 9 points its branch's tier-4 capstone does. A
+# point in 16 opens the Glide branch and a point in 17 opens Wings; that gate covers the opened branch's
+# **tier-1 entry only** -- its tiers 2 to 4 then open on the tier above being full. A branch's own tiers
+# never need the bridge, so a filled branch's capstone opens on its own 9 points. Dive is the
 # entry branch and is always open, which is what keeps the graph acyclic. Refunding a bridge refunds the
 # rank, never the points spent in the branch it opened: those keep their rank and only stop accepting
 # new ones.

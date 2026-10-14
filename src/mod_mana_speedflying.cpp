@@ -118,11 +118,12 @@ namespace
     };
 
     // Cost is 1 point per rank. Tiers 1 to 3 are three ranks each and tier 4 is a single-rank capstone,
-    // so filling one branch costs 10 of the 13 points a character can ever earn. A tier opens only once
-    // every tier above it in the same branch is at its full rank, and only one talent of a (branch, tier)
-    // group may hold a rank: that exclusivity is the tier-2 pick. Both rules live in HandleTalentLearn.
-    // The two 1-point bridges at tier 3 are exempt from both, and Dive is the entry branch every branch
-    // hangs off; see HandleTalentLearn for the exact order a write is validated in.
+    // so filling one branch costs 10 of the 13 points a character can ever earn. Tier 1 is the branch's
+    // entry and needs its bridge ranked; tiers 2 to 4 open on the tier above being full, and only one
+    // talent of a (branch, tier) group may hold a rank: that exclusivity is the tier-2 pick. Both tier
+    // rules live in HandleTalentLearn. The two 1-point bridges at tier 3 are exempt from the rows above
+    // them but need their own row full, so they unlock with the capstone beside them; Dive is the entry
+    // branch every branch hangs off; see HandleTalentLearn for the exact order a write is validated in.
     // Append-only and never renumber -- the ids key the stored ranks -- and the client panel lays itself
     // out from these entries.
     const TalentDef kTalents[] =
@@ -306,6 +307,7 @@ namespace
         // The unlock graph: Dive is the entry branch and is always open; kBranchGlide opens on a rank
         // in the Dive bridge (16) and kBranchWings on a rank in the Glide bridge (17). A bridge is a
         // gate, not a bypass, so a node whose own branch is closed is refused too -- see HandleTalentLearn.
+        // It opens the branch's tier-1 entry only: the branch's own tiers then open top down.
         bool BranchOpen(int branch) const
         {
             if (branch <= kBranchDive || branch >= kBranchCount)
@@ -1057,26 +1059,22 @@ namespace
                     kTalents[i].tier == t.tier && p.tree.ranks[i] > 0)
                     return "tier-taken";
         }
-        // The bridge beside a branch opens its tier 4 only. Tiers 1 to 3 are walkable without it -- a
-        // branch's own tier 3 opens on its tier 1 and 2 being full (the tier gate below), not on the
-        // bridge -- so a player can finish a branch and only then decide to bridge into it. Gating tier
-        // 3 on the bridge made a filled branch refuse its own third tier with no way to satisfy it.
-        // Dive is the entry branch and is always open, so its own gate never fires. Refused rather than
-        // dropped, so the panel shows why the tier went grey.
-        if (!IsBridge(index) && t.tier >= 4 && !p.tree.BranchOpen(t.branch))
+        // The bridge a branch opens is its **tier 1 only**: a branch is entered through its bridge, and
+        // its own tiers 1 to 4 then open top down on the tier above being full. Gating every tier on the
+        // bridge made a filled branch refuse its own tier 4 with no way to satisfy it. Dive is the entry
+        // branch and is always open, so its own gate never fires. Refused rather than dropped, so the
+        // panel shows why the node went grey.
+        // A bridge is refused when the branch it *sits in* is shut: 17 lives in Glide, so Wings cannot be
+        // opened straight from Dive -- 16 must be bought first. A bridge is a gate, not a bypass.
+        const bool bridge = IsBridge(index);
+        if (bridge ? !p.tree.BranchOpen(t.branch) : (t.tier == 1 && !p.tree.BranchOpen(t.branch)))
             return "tree-locked";
-        // A bridge bypasses the tier rules, not the branch it sits in: 17 lives in Glide, so Wings
-        // cannot be opened straight from Dive -- 16 must be bought first. Dive is the entry branch, so
-        // 16 itself passes. The client applies the same rule when it decides a node is clickable.
-        // Unconditional on tier: both bridges are the point that opens the next branch, so their own
-        // branch is always required, whether or not the rule above exempted tier 3.
-        if (IsBridge(index) && !p.tree.BranchOpen(t.branch))
-            return "tree-locked";
-        // A bridge has no tier above it to unlock: it is the way in, not a step up.
-        if (!IsBridge(index))
-            for (uint8 r = 1; r < t.tier; ++r)
-                if (!p.tree.TierDone(t.branch, r))
-                    return "tier-locked";
+        // A bridge skips the rows above it (it is the way in) and needs only its own row full, which is
+        // the branch's 9 points -- the same point its tier-4 capstone opens on. An ordinary talent needs
+        // every row above it full.
+        for (uint8 r = 1; r <= (bridge ? t.tier : t.tier - 1); ++r)
+            if (!p.tree.TierDone(t.branch, r))
+                return "tier-locked";
         // Only unspent points can be spent -- never the lifetime count, or a character that earned
         // the cap and then respecced could never spend the points the refund gave back.
         if (p.Unspent() <= 0)
@@ -1090,9 +1088,10 @@ namespace
         return nullptr;
     }
 
-    // Every write validates in this order: a loaded progress row, the id, the rank ceiling, the
-    // tier's pick, the tiers above it, the lifetime cap, then the derived unspent count -- which is
-    // what makes a forged message cost exactly what a real one would.
+    // Every write validates in this order: a loaded progress row, the id, the rank ceiling, the tier's
+    // pick, the branch gate (a bridge, and a branch's tier-1 entry), the rows above it, the lifetime cap,
+    // then the derived unspent count -- which is what makes a forged message cost exactly what a real one
+    // would.
     void HandleTalentLearn(Player* player, uint64 guid, int talentId)
     {
         auto it = g_progress.find(guid);
