@@ -376,10 +376,11 @@ ManaSpeedFlying.SpeedCapPct = 1600.0
 #                                              and opens the Wings branch
 #
 # A branch's tiers 1 and 2 are free to buy, in any branch: 3 ranks in tier 1 and a pick of two in tier 2,
-# top-down with no bridge, so a branch is playable to 6 points. A branch's tiers 3 and 4 are opened by the
-# 1-point bridge in the branch **before** it -- Glide's tiers 3-4 need 16 Still Air, Wings' need 17 Tucked
-# Wings -- and each row still opens on the one above it being at full rank, so one branch costs
-# 3+3+3+1 = 10 points to fill. Dive is the entry branch, so its own tiers 3-4 need no bridge.
+# top-down with no bridge, so a branch is playable to 6 points. Its tiers 3 and 4 then open on its own
+# tiers 1 and 2 being full -- OR on a rank in the 1-point bridge in the branch before it (Glide's via
+# 16 Still Air, Wings' via 17 Tucked Wings), which is the bridge's whole job: a shortcut into the
+# neighbour's last two tiers. Each row still opens on the one above it being at full rank, so one branch
+# costs 3+3+3+1 = 10 points to fill. Dive has no bridge, so its tiers 3-4 are plain top-down.
 # Tier 2 is a *pick*: of the two talents in it only one may hold a rank at a time -- refund one before
 # buying the other.
 #
@@ -388,8 +389,7 @@ ManaSpeedFlying.SpeedCapPct = 1600.0
 # the capstone beside them stays reachable. A bridge is a tier-3 talent in its OWN branch: it needs that
 # branch's tiers 1 and 2 full AND a point spent in that branch's tier-4 capstone -- the capstone is the
 # last thing a branch buys and its rank is what opens the bridge beside it. A rank in the bridge opens the
-# NEXT branch's tiers 3 and 4, which is its whole job. The chain is Dive's tiers 1-2 + capstone ->
-# 16 Still Air -> Glide's tiers 3-4 -> Glide's capstone -> 17 Tucked Wings -> Wings' tiers 3-4. Refunding a
+# NEXT branch's tiers 3 and 4 without its first two rows, which is its whole job. Refunding a
 # bridge refunds the
 # rank, never the points spent in the branch it opened: those keep their rank and only stop accepting
 # new ones.

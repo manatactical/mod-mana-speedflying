@@ -119,12 +119,12 @@ namespace
 
     // Cost is 1 point per rank. Tiers 1 to 3 are three ranks each and tier 4 is a single-rank capstone,
     // so filling one branch costs 10 of the 13 points a character can ever earn. Tiers 1 and 2 are free
-    // to buy in any branch; tiers 3 and 4 need the branch opened by the bridge in the branch BEFORE it.
-    // Every row opens on the row above being full, and only one talent of a (branch, tier) group may hold
-    // a rank: that exclusivity is the tier-2 pick. A bridge is a tier-3 node in its own branch needing
-    // that branch's tiers 1-2 full plus its tier-4 capstone, and its rank opens the next branch's
-    // tiers 3-4; the rule set lives in
-    // Talents::BridgeAvailable / BranchOpen and in ApplyTalentRank.
+    // to buy and strictly top-down; tiers 3 and 4 open on the branch's own tiers 1-2 being full OR on the
+    // bridge in the branch before it -- each row otherwise opens on the row above being full, and only one
+    // talent of a (branch, tier) group may hold a rank: that exclusivity is the tier-2 pick. A bridge is a
+    // tier-3 node in its own branch needing that branch's tiers 1-2 full plus its tier-4 capstone, and its
+    // rank is a shortcut into the next branch's tiers 3-4; the rule set lives in
+    // Talents::BridgeAvailable / BridgeOpensBranch and in ApplyTalentRank.
     // Append-only and never renumber -- the ids key the stored ranks -- and the client panel lays itself
     // out from these entries.
     const TalentDef kTalents[] =
@@ -326,13 +326,10 @@ namespace
             return TierDone(own, 1) && TierDone(own, 2) && CapstoneRanked(own);
         }
 
-        // The unlock graph: Dive's tiers 3 and 4 need no bridge (Dive is the entry branch); kBranchGlide's
-        // tiers 3 and 4 are opened by a rank in the Dive bridge (16), kBranchWings' by a rank in the Glide
-        // bridge (17). The bridge sits one branch BEFORE the tiers it opens, so it never gates its own.
-        bool BranchOpen(int branch) const
+        // A bridge that has been ranked is what unlocks the branch it opens. No entry-branch case: Dive has
+        // no bridge, so this is false for it, which keeps Dive's tiers 3-4 strictly top-down.
+        bool BridgeOpensBranch(uint8 branch) const
         {
-            if (branch <= kBranchDive || branch >= kBranchCount)
-                return true;
             for (int i = 0; i < kTalentCount; ++i)
                 if (GateOpens(kTalents[i].id) == branch && ranks[i] > 0)
                     return true;
@@ -1080,19 +1077,21 @@ namespace
                     kTalents[i].tier == t.tier && p.tree.ranks[i] > 0)
                     return "tier-taken";
         }
-        // The branch gate: tiers 1 and 2 are free to buy top-down in any branch; tiers 3 and 4 need the
-        // branch entered, i.e. its bridge ranked -- the bridge is the window onto the neighbour's last
-        // two tiers and nothing else. A bridge is refused when neither capstone beside it is ranked
-        // (BridgeAvailable). Refused rather than dropped, so the panel shows why the node went grey.
-        if (IsBridge(index) ? !p.tree.BridgeAvailable(index)
-                            : (t.tier >= 3 && !p.tree.BranchOpen(t.branch)))
+        // A bridge is refused until its own branch's tiers 1-2 are full and its tier-4 capstone ranked.
+        // Refused rather than dropped, so the panel shows why the node went grey.
+        if (IsBridge(index) && !p.tree.BridgeAvailable(index))
             return "tree-locked";
-        // A bridge has no rows above it to wait for -- BridgeAvailable is its whole gate. An ordinary
-        // talent needs every row above it full.
+        // Its own row gate: the rows above must be full -- OR the branch is reached through its bridge,
+        // which is the whole point of a bridge (its rank opens the neighbour's tiers 3-4 without those
+        // first two rows). Dive has no bridge, so its tiers 3-4 stay strictly top-down.
         if (!IsBridge(index))
+        {
+            bool rowsFull = true;
             for (uint8 r = 1; r < t.tier; ++r)
-                if (!p.tree.TierDone(t.branch, r))
-                    return "tier-locked";
+                if (!p.tree.TierDone(t.branch, r)) { rowsFull = false; break; }
+            if (!rowsFull && (t.tier < 3 || !p.tree.BridgeOpensBranch(t.branch)))
+                return "tier-locked";
+        }
         // Only unspent points can be spent -- never the lifetime count, or a character that earned
         // the cap and then respecced could never spend the points the refund gave back.
         if (p.Unspent() <= 0)

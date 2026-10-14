@@ -195,14 +195,17 @@ ever shorten the tree. The panel's bar shows the 13-step progress and the yards 
   points. A branch's **tiers 3 and 4** are opened by the 1-point bridge sitting in the branch **before**
   it: Glide's tiers 3-4 need 16 Still Air (Dive's tier 3), Wings' need 17 Tucked Wings (Glide's tier 3).
   Dive is the entry branch, so its own tiers 3-4 need no bridge at all.
+- **Row gate, and the bridge's one job.** Tiers 1 and 2 are strictly top-down: a row opens on the row
+  above it being full. Tiers 3 and 4 open the same way -- on the branch's own tiers 1 and 2 being full --
+  **or** on a rank in the bridge in the branch before it (16 Still Air opens Glide's tiers 3-4, 17 Tucked
+  Wings opens Wings'). So a branch played to 6 points continues to its own tiers 3-4, and a bridge is a
+  shortcut into the neighbour's last two tiers without filling that neighbour's first two. Dive has no
+  bridge, so its tiers 3-4 are plain top-down.
 - **Bridge unlock.** A bridge is a **tier-3** talent in its own branch: it needs that branch's tiers 1
   and 2 full **and a point spent in that branch's tier-4 capstone** -- the capstone is the last thing a
   branch buys, and its rank is what opens the bridge beside it. A bridge does not count toward its own
   branch's tier-3 completion and cannot be refused as its rival, so Shallow Pull and Still Air can be
   ranked together.
-- **Bridge effect.** A ranked bridge opens the **next** branch's tiers 3 and 4 (16 Still Air -> Glide,
-  17 Tucked Wings -> Wings); tiers 1 and 2 of every branch are free, top-down. So 16 opens Glide's tier 3
-  and 17 needs Glide's capstone in turn. Dive is the entry branch: its own tiers 3-4 need no bridge.
 - **Tier gate.** Tier 1 is free to buy inside any branch. Tiers 2, 3 and 4 (and a bridge, which rides its
   own branch's tier 3 row) open only once the tier above them is at full rank (in every talent it holds),
   so a branch is `3+3+3+1 = 10` points.
