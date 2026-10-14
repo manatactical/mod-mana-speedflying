@@ -1087,7 +1087,7 @@ namespace
         // from zero points; its rows 2 to 4 need the branch entered, i.e. its bridge ranked. A bridge is
         // refused when neither capstone beside it is ranked (BridgeAvailable). Refused rather than
         // dropped, so the panel shows why the node went grey.
-        if (IsBridge(index) ? !BridgeAvailable(index)
+        if (IsBridge(index) ? !p.tree.BridgeAvailable(index)
                             : (t.tier >= 2 && !p.tree.BranchOpen(t.branch)))
             return "tree-locked";
         // A bridge has no rows above it to wait for -- BridgeAvailable is its whole gate. An ordinary
