@@ -119,12 +119,13 @@ namespace
 
     // Cost is 1 point per rank. Tiers 1 to 3 are three ranks each and tier 4 is a single-rank capstone,
     // so filling one branch costs 10 of the 13 points a character can ever earn. Tiers 1 and 2 are free
-    // to buy and strictly top-down; tiers 3 and 4 open on the branch's own tiers 1-2 being full OR on the
-    // bridge in the branch before it -- each row otherwise opens on the row above being full, and only one
-    // talent of a (branch, tier) group may hold a rank: that exclusivity is the tier-2 pick. A bridge is a
+    // to buy and strictly top-down; tier 3 opens on the branch's own tiers 1-2 being full OR on the rank
+    // of a bridge touching the branch; tier 4 opens only on the branch's own tier 3 being full, never on a
+    // bridge. Only one talent of a (branch, tier) group may hold a rank: that exclusivity is the tier-2
+    // pick. A bridge is a
     // tier-3 node wedged between two branches: it needs one of them complete -- that branch's tiers 1-2 full
-    // plus its tier-4 capstone -- so a finished middle branch opens the bridge on both its sides. Its rank is
-    // a shortcut into the next branch's tiers 3-4; the rule set lives in
+    // plus its tier-4 capstone -- so a finished middle branch opens the bridge on both its sides. Its rank
+    // is a shortcut into the touching branches' tier 3, not their tier 4; the rule set lives in
     // Talents::BridgeAvailable / BridgeOpensBranch and in ApplyTalentRank.
     // Append-only and never renumber -- the ids key the stored ranks -- and the client panel lays itself
     // out from these entries.

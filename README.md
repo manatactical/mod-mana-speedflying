@@ -190,17 +190,17 @@ ever shorten the tree. The panel's bar shows the 13-step progress and the yards 
 | 16 | Dive | 3 | Still Air | 1 | climb threshold 15° -> 25°, **and opens the Glide branch** |
 | 17 | Glide | 3 | Tucked Wings | 1 | dive threshold 35° -> 45°, **and opens the Wings branch** |
 
-- **Branch gate (`tree-tlocked`) -> tiers 3 and 4.** Every branch's **tiers 1 and 2 are free to buy** --
+- **Branch gate (`tree-locked`) -> tier 3 only.** Every branch's **tiers 1 and 2 are free to buy** --
   3 ranks in tier 1 and a pick of two in tier 2, top-down with no bridge, so a branch is playable to 6
-  points. A branch's **tiers 3 and 4** are opened by the 1-point bridge sitting in the branch **before**
-  it: Glide's tiers 3-4 need 16 Still Air (Dive's tier 3), Wings' need 17 Tucked Wings (Glide's tier 3).
-  Dive is the entry branch, so its own tiers 3-4 need no bridge at all.
-- **Row gate, and the bridge's one job.** Tiers 1 and 2 are strictly top-down: a row opens on the row
-  above it being full. Tiers 3 and 4 open the same way -- on the branch's own tiers 1 and 2 being full --
-  **or** on a rank in the bridge in the branch before it (16 Still Air opens Glide's tiers 3-4, 17 Tucked
-  Wings opens Wings'). So a branch played to 6 points continues to its own tiers 3-4, and a bridge is a
-  shortcut into the neighbour's last two tiers without filling that neighbour's first two. Dive has no
-  bridge, so its tiers 3-4 are plain top-down.
+  points. A branch's **tier 3** opens on its own tiers 1-2 being full **or** on the 1-point bridge that
+  touches it. A bridge touches two branches -- the one it sits in and the one it points at -- so 16 Still
+  Air (Dive's tier 3, opens Glide) opens tier 3 of **both** Dive and Glide, and 17 Tucked Wings does the
+  same for Glide and Wings.
+- **Tier 4 is never handed out by a bridge.** The capstone needs its **own branch's tier 3 full**, always.
+  A bridge is a shortcut into tier 3 and stops there, so playing the row is what earns the capstone.
+- **Row gate.** Tiers 2 and 3 are top-down: a row opens on the row above being full, and tier 3 may
+  instead be reached through a bridge that touches the branch. Tier 4 needs its own tier 3 full, never a
+  bridge.
 - **Bridge unlock.** A bridge is a **tier-3** talent in its own branch: it needs that branch's tiers 1
   and 2 full, that branch's tier-4 capstone ranked, **or the branch it opens being complete** -- a bridge is
   wedged between two branches, and either one being finished opens it. That makes a finished middle branch
@@ -208,9 +208,10 @@ ever shorten the tree. The panel's bar shows the 13-step progress and the yards 
   bridge does not count toward its own
   branch's tier-3 completion and cannot be refused as its rival, so Shallow Pull and Still Air can be
   ranked together.
-- **Tier gate.** Tier 1 is free to buy inside any branch. Tiers 2, 3 and 4 (and a bridge, which rides its
-  own branch's tier 3 row) open only once the tier above them is at full rank (in every talent it holds),
-  so a branch is `3+3+3+1 = 10` points.
+- **Tier gate.** Tier 1 is free to buy inside any branch. Tiers 2 and 3 (and a bridge, which rides its
+  own branch's tier-3 row) open only once the tier above them is at full rank (in every talent it holds) --
+  or, for tier 3, through a touching bridge. Tier 4 needs its own tier 3 full. A branch is `3+3+3+1 = 10`
+  points.
 - **Tier 2 is a pick.** Of the two talents in a tier-2 group only one may hold a rank; the server
   refuses the rival with `tier-taken`. Switch halves by resetting the branch (`Reset`, or right-click a
   talent). A bridge is exempt -- it never competes with its branch's own pick, so Shallow Pull and Still
