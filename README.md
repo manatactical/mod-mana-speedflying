@@ -114,15 +114,15 @@ rank or a point count can have moved.
 
 Every write validates in this order, inside one lock: config enabled, the player is on a mount, the
 character has a progress row, the talent id is known, `rank + 1 <= maxRank`, the tier's pick is free
-(skipped for a bridge), the branch is open for a bridge and for a tier-1 entry only, every tier above it
+(skipped for a bridge), the branch is entered for a bridge and for tiers 3-4 only, every tier above it
 in the branch is at full rank (skipped for a bridge, which instead needs its own row full), the lifetime
 cap, and only then the derived unspent count. A forged learn message
 therefore costs exactly what a real one would, and a forged bridge costs a point like any other rank.
 
-A branch's tier-1 entry is gated by the bridge in the branch before it, so a batch that enters a branch
-must list that bridge first: a client sorts its staged targets by (branch, tier), which puts 16 Still
-Air inside the Dive group ahead of any Glide entry. A client that does not sort simply gets the entry
-refused and can Confirm again from a tree the first batch already advanced.
+A branch's tiers 3 and 4 are gated by the bridge in the branch before it, so a batch that both ranks a
+bridge and then spends in its tiers 3-4 must list the bridge first: a client sorts its staged targets by
+(branch, tier), which puts 16 Still Air inside the Dive group ahead of any Glide entry. A client that
+does not sort simply gets that entry refused and can Confirm again from a tree the first batch advanced.
 
 A tier opens top down inside its branch: tiers 2 and 3 need the tier above them full in *every* talent
 it holds, so filling a branch costs `3+3+3+1 = 10` points. Tier 2 is a **pick of two** -- the server
@@ -190,14 +190,16 @@ ever shorten the tree. The panel's bar shows the 13-step progress and the yards 
 | 16 | Dive | 3 | Still Air | 1 | climb threshold 15° -> 25°, **and opens the Glide branch** |
 | 17 | Glide | 3 | Tucked Wings | 1 | dive threshold 35° -> 45°, **and opens the Wings branch** |
 
-- **Branch gate (`tree-locked`).** Every branch's **tier 1 is free to buy**, so any of the three can be
-  started from zero points. A branch's rows 2 to 4 need that branch **entered**: the Glide branch is
-  entered by a rank in 16 Still Air, the Wings branch by a rank in 17 Tucked Wings. So the whole first row
-  of the tree is green at 0 points, and the bridge is what opens the rest of the branch next door.
+- **Branch gate (`tree-locked`).** Every branch's **tiers 1 and 2 are free to buy** -- 3 ranks in tier 1
+  and a pick of two in tier 2, top-down with no bridge, so a branch is playable to 6 points before it.
+  A branch's **tiers 3 and 4** need that branch **entered**: Glide is entered by a rank in 16 Still Air,
+  Wings by a rank in 17 Tucked Wings. The bridge is the window onto the neighbouring branch's last two
+  tiers and nothing else.
 - **Bridge unlock.** 16 Still Air and 17 Tucked Wings each unlock as soon as **either branch they sit
   between** has its tier-4 capstone ranked: Still Air on Aftershock (Dive) **or** Twin Vault (Glide),
   Tucked Wings on Twin Vault (Glide) **or** Rising Current (Wings). That is what keeps the graph acyclic
-  -- Dive's own capstone needs no bridge. The chain is Dive's capstone -> Still Air -> Glide's rows ->
+  -- Dive's own capstone needs no bridge. The chain is Dive's capstone -> Still Air -> Glide's tiers 3-4
+  -> Glide's capstone -> Tucked Wings -> Wings' tiers 3-4.
   Glide's capstone -> Tucked Wings -> Wings' rows.
 - **Tier gate.** Tier 1 is free to buy inside any branch. Tiers 2, 3 and 4 (and a bridge, which has no
   row above it) open only once the tier above them is at full rank (in every talent it holds), so a

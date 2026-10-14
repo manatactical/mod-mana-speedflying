@@ -330,8 +330,8 @@ namespace
 
         // The unlock graph: Dive is the entry branch and is always entered; kBranchGlide is entered on a
         // rank in the Dive bridge (16) and kBranchWings on a rank in the Glide bridge (17). This gates a
-        // branch's rows 2 to 4 -- its tier-1 entry is free to buy (see ApplyTalentRank), which is what
-        // lets a player start any branch from zero points.
+        // branch's tiers 3 and 4 ONLY -- tiers 1 and 2 are free to buy top-down, so the bridge is the
+        // window onto the neighbouring branch's last two tiers and nothing else.
         bool BranchOpen(int branch) const
         {
             if (branch <= kBranchDive || branch >= kBranchCount)
@@ -1083,12 +1083,12 @@ namespace
                     kTalents[i].tier == t.tier && p.tree.ranks[i] > 0)
                     return "tier-taken";
         }
-        // The branch gate: a branch's tier-1 entry is free to buy, so any of the three can be started
-        // from zero points; its rows 2 to 4 need the branch entered, i.e. its bridge ranked. A bridge is
-        // refused when neither capstone beside it is ranked (BridgeAvailable). Refused rather than
-        // dropped, so the panel shows why the node went grey.
+        // The branch gate: tiers 1 and 2 are free to buy top-down in any branch; tiers 3 and 4 need the
+        // branch entered, i.e. its bridge ranked -- the bridge is the window onto the neighbour's last
+        // two tiers and nothing else. A bridge is refused when neither capstone beside it is ranked
+        // (BridgeAvailable). Refused rather than dropped, so the panel shows why the node went grey.
         if (IsBridge(index) ? !p.tree.BridgeAvailable(index)
-                            : (t.tier >= 2 && !p.tree.BranchOpen(t.branch)))
+                            : (t.tier >= 3 && !p.tree.BranchOpen(t.branch)))
             return "tree-locked";
         // A bridge has no rows above it to wait for -- BridgeAvailable is its whole gate. An ordinary
         // talent needs every row above it full.

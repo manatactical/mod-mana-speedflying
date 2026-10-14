@@ -375,9 +375,10 @@ ManaSpeedFlying.SpeedCapPct = 1600.0
 #   17  Glide   3     Tucked Wings           1  client-side: the dive needs 10 degrees steeper,
 #                                              and opens the Wings branch
 #
-# Tier 1 in a branch is free to buy, whichever branch it is: the whole first row is open at 0 points.
-# A branch's rows 2 to 4 need that branch **entered** -- its 1-point bridge ranked -- and each row opens
-# on the one above it being at full rank, so one branch costs 3+3+3+1 = 10 points to fill. Tier 2 is a
+# A branch's tiers 1 and 2 are free to buy, in any branch: 3 ranks in tier 1 and a pick of two in tier 2,
+# top-down with no bridge, so a branch is playable to 6 points before its bridge. The branch's tiers 3
+# and 4 are what need it **entered** -- its 1-point bridge ranked -- and each row still opens on the one
+# above it being at full rank, so one branch costs 3+3+3+1 = 10 points to fill. Tier 2 is a
 # *pick*: of the two talents in it only one may hold a rank at a time -- refund one before buying the
 # other.
 #
@@ -386,10 +387,11 @@ ManaSpeedFlying.SpeedCapPct = 1600.0
 # the capstone beside them stays reachable. A bridge unlocks as soon as **either branch it sits between**
 # has its tier-4 capstone ranked: Still Air on Aftershock (Dive) or Twin Vault (Glide), Tucked Wings on
 # Twin Vault (Glide) or Rising Current (Wings). A ranked bridge enters the branch it opens, which is what
-# makes its rows 2 to 4 buyable. That is the whole chain: Dive's capstone -> 16 Still Air -> Glide's rows
-# -> Glide's capstone -> 17 Tucked Wings -> Wings' rows. Dive's own tier 1 needs no bridge, which is what
-# keeps the graph acyclic. Refunding a bridge refunds the rank, never the points spent in the branch it
-# opened: those keep their rank and only stop accepting new ones.
+# makes its tiers 3 and 4 buyable. That is the whole chain: Dive's capstone -> 16 Still Air -> Glide's
+# tiers 3-4 -> Glide's capstone -> 17 Tucked Wings -> Wings' tiers 3-4. Dive's tiers 1-2 need no bridge,
+# which is what keeps the graph acyclic. Refunding a bridge refunds the
+# rank, never the points spent in the branch it opened: those keep their rank and only stop accepting
+# new ones.
 #
 # Held Breath and Rising Current both scale ClimbDecelMs. Their ranks are summed into one
 # multiplier, not compounded one after the other.
