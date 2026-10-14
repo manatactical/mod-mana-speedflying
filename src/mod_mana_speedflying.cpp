@@ -122,8 +122,9 @@ namespace
     // to buy and strictly top-down; tiers 3 and 4 open on the branch's own tiers 1-2 being full OR on the
     // bridge in the branch before it -- each row otherwise opens on the row above being full, and only one
     // talent of a (branch, tier) group may hold a rank: that exclusivity is the tier-2 pick. A bridge is a
-    // tier-3 node in its own branch needing that branch's tiers 1-2 full plus its tier-4 capstone, and its
-    // rank is a shortcut into the next branch's tiers 3-4; the rule set lives in
+    // tier-3 node wedged between two branches: it needs one of them complete -- that branch's tiers 1-2 full
+    // plus its tier-4 capstone -- so a finished middle branch opens the bridge on both its sides. Its rank is
+    // a shortcut into the next branch's tiers 3-4; the rule set lives in
     // Talents::BridgeAvailable / BridgeOpensBranch and in ApplyTalentRank.
     // Append-only and never renumber -- the ids key the stored ranks -- and the client panel lays itself
     // out from these entries.
@@ -314,16 +315,23 @@ namespace
             return false;
         }
 
-        // Is a bridge buyable? It is a tier-3 node in its OWN branch, so that branch's tiers 1 and 2 have
-        // to be full -- and a point must have been spent on the branch's **tier-4 capstone**, which is the
-        // one talent whose whole point is that it is the last thing a branch buys. A rank in the bridge
-        // then opens the NEXT branch's tiers 3 and 4. Deliberately NOT gated on the branch it opens or on
-        // the neighbour's capstone: that made the gates wait on each other and left the next branch
-        // unreachable inside the 13-point cap.
+        // Is `branch` finished -- tiers 1 and 2 full and its tier-4 capstone ranked? The capstone is the
+        // talent that exists to be the last thing a branch buys, so its rank is what "complete" means.
+        bool BranchComplete(uint8 branch) const
+        {
+            return TierDone(branch, 1) && TierDone(branch, 2) && CapstoneRanked(branch);
+        }
+
+        // Is a bridge buyable? Either branch it is wedged between being complete opens it: its own branch
+        // (the bridge sits in its tier-3 row) or the branch it opens. That symmetry is what makes the
+        // middle branch a hub -- finishing Glide opens BOTH bridges beside it, 16 Still Air (in Dive,
+        // opens Glide) and 17 Tucked Wings (in Glide, opens Wings) -- so play can set off either way. A
+        // rank in the bridge then opens the branch it points at. Deliberately not gated on the tier gate:
+        // that made two gates wait on each other and left the next branch unreachable inside the point cap.
         bool BridgeAvailable(int index) const
         {
-            const uint8 own = kTalents[index].branch;
-            return TierDone(own, 1) && TierDone(own, 2) && CapstoneRanked(own);
+            const TalentDef& t = kTalents[index];
+            return BranchComplete(t.branch) || BranchComplete(GateOpens(t.id));
         }
 
         // A bridge that has been ranked is what unlocks the branch it opens. No entry-branch case: Dive has
@@ -1077,8 +1085,9 @@ namespace
                     kTalents[i].tier == t.tier && p.tree.ranks[i] > 0)
                     return "tier-taken";
         }
-        // A bridge is refused until its own branch's tiers 1-2 are full and its tier-4 capstone ranked.
-        // Refused rather than dropped, so the panel shows why the node went grey.
+        // A bridge is refused until either branch it is wedged between is complete -- its own (tiers 1-2
+        // full and tier-4 capstone ranked) or the branch it opens. Refused rather than dropped, so the
+        // panel shows why the node went grey.
         if (IsBridge(index) && !p.tree.BridgeAvailable(index))
             return "tree-locked";
         // Its own row gate: the rows above must be full -- OR the branch is reached through its bridge,

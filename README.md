@@ -202,8 +202,10 @@ ever shorten the tree. The panel's bar shows the 13-step progress and the yards 
   shortcut into the neighbour's last two tiers without filling that neighbour's first two. Dive has no
   bridge, so its tiers 3-4 are plain top-down.
 - **Bridge unlock.** A bridge is a **tier-3** talent in its own branch: it needs that branch's tiers 1
-  and 2 full **and a point spent in that branch's tier-4 capstone** -- the capstone is the last thing a
-  branch buys, and its rank is what opens the bridge beside it. A bridge does not count toward its own
+  and 2 full, that branch's tier-4 capstone ranked, **or the branch it opens being complete** -- a bridge is
+  wedged between two branches, and either one being finished opens it. That makes a finished middle branch
+  (Glide) a hub: it opens the bridge on both its sides, so play may set off toward Dive or toward Wings. A
+  bridge does not count toward its own
   branch's tier-3 completion and cannot be refused as its rival, so Shallow Pull and Still Air can be
   ranked together.
 - **Tier gate.** Tier 1 is free to buy inside any branch. Tiers 2, 3 and 4 (and a bridge, which rides its

@@ -388,7 +388,9 @@ ManaSpeedFlying.SpeedCapPct = 1600.0
 # completion and cannot be refused as its rival, so Shallow Pull and Still Air can be ranked together and
 # the capstone beside them stays reachable. A bridge is a tier-3 talent in its OWN branch: it needs that
 # branch's tiers 1 and 2 full AND a point spent in that branch's tier-4 capstone -- the capstone is the
-# last thing a branch buys and its rank is what opens the bridge beside it. A rank in the bridge opens the
+# last thing a branch buys and its rank is what opens the bridge beside it. Either branch a bridge is wedged
+# between being complete opens it too, so a finished middle branch (Glide) opens the bridge on both its sides
+# and play can set off either way. A rank in the bridge opens the
 # NEXT branch's tiers 3 and 4 without its first two rows, which is its whole job. Refunding a
 # bridge refunds the
 # rank, never the points spent in the branch it opened: those keep their rank and only stop accepting
