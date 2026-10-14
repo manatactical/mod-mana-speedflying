@@ -118,11 +118,13 @@ namespace
     };
 
     // Cost is 1 point per rank. Tiers 1 to 3 are three ranks each and tier 4 is a single-rank capstone,
-    // so filling one branch costs 10 of the 13 points a character can ever earn. Tier 1 is free to buy in
-    // any branch; a branch's rows 2 to 4 need the branch *entered* (its bridge ranked), open on the row
-    // above being full, and only one talent of a (branch, tier) group may hold a rank: that exclusivity
-    // is the tier-2 pick. A bridge has no row above it and unlocks on either neighbouring capstone; the
-    // whole rule set lives in Talents::BridgeAvailable / BranchOpen and in ApplyTalentRank.
+    // so filling one branch costs 10 of the 13 points a character can ever earn. Tiers 1 and 2 are free
+    // to buy in any branch; tiers 3 and 4 need the branch opened by the bridge in the branch BEFORE it.
+    // Every row opens on the row above being full, and only one talent of a (branch, tier) group may hold
+    // a rank: that exclusivity is the tier-2 pick. A bridge is a tier-3 node in its own branch needing
+    // that branch's tiers 1-2 full plus its tier-4 capstone, and its rank opens the next branch's
+    // tiers 3-4; the rule set lives in
+    // Talents::BridgeAvailable / BranchOpen and in ApplyTalentRank.
     // Append-only and never renumber -- the ids key the stored ranks -- and the client panel lays itself
     // out from these entries.
     const TalentDef kTalents[] =
@@ -303,7 +305,7 @@ namespace
             return quota > 0 && spent >= quota;
         }
 
-        // Tier 4 of a branch is full: its capstone holds a rank. The bridge gate below reads this.
+        // Tier 4 of a branch is full: its capstone holds a rank. BridgeAvailable reads this.
         bool CapstoneRanked(uint8 branch) const
         {
             for (int i = 0; i < kTalentCount; ++i)
@@ -312,26 +314,21 @@ namespace
             return false;
         }
 
-        // Is a bridge buyable? The two columns it is wedged between are the branch it opens and the one
-        // before that, and a rank in either branch's tier-4 capstone is what opens it -- so 16 Still Air
-        // (opens Glide) takes Dive's OR Glide's capstone and 17 Tucked Wings (opens Wings) takes Glide's
-        // OR Wings's. Deliberately NOT BranchOpen(the branch it opens): that made the two gates wait on
-        // each other (Glide's rows on 16, 16 on Glide's capstone), so neither could ever be bought from
-        // zero. The capstone breaks the cycle -- Dive's capstone needs no bridge, so 16 follows, then
-        // Glide's rows, then 17. Its own row never gates it either.
+        // Is a bridge buyable? It is a tier-3 node in its OWN branch, so that branch's tiers 1 and 2 have
+        // to be full -- and a point must have been spent on the branch's **tier-4 capstone**, which is the
+        // one talent whose whole point is that it is the last thing a branch buys. A rank in the bridge
+        // then opens the NEXT branch's tiers 3 and 4. Deliberately NOT gated on the branch it opens or on
+        // the neighbour's capstone: that made the gates wait on each other and left the next branch
+        // unreachable inside the 13-point cap.
         bool BridgeAvailable(int index) const
         {
-            const uint8 opens = GateOpens(kTalents[index].id);
-            for (uint8 b = opens > kBranchDive ? opens - 1 : kBranchDive; b <= opens; ++b)
-                if (CapstoneRanked(b))
-                    return true;
-            return false;
+            const uint8 own = kTalents[index].branch;
+            return TierDone(own, 1) && TierDone(own, 2) && CapstoneRanked(own);
         }
 
-        // The unlock graph: Dive is the entry branch and is always entered; kBranchGlide is entered on a
-        // rank in the Dive bridge (16) and kBranchWings on a rank in the Glide bridge (17). This gates a
-        // branch's tiers 3 and 4 ONLY -- tiers 1 and 2 are free to buy top-down, so the bridge is the
-        // window onto the neighbouring branch's last two tiers and nothing else.
+        // The unlock graph: Dive's tiers 3 and 4 need no bridge (Dive is the entry branch); kBranchGlide's
+        // tiers 3 and 4 are opened by a rank in the Dive bridge (16), kBranchWings' by a rank in the Glide
+        // bridge (17). The bridge sits one branch BEFORE the tiers it opens, so it never gates its own.
         bool BranchOpen(int branch) const
         {
             if (branch <= kBranchDive || branch >= kBranchCount)
