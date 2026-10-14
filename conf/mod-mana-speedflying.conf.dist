@@ -43,13 +43,13 @@ ManaSpeedFlying.LevelSpeed = 2.8
 
 #
 #    ManaSpeedFlying.DiveSpeed
-#        Description: Flight speed while diving. 8.0 = 800%. This is the fastest. Changing this (and
+#        Description: Flight speed while diving. 6.0 = 600%. This is the fastest. Changing this (and
 #                     LevelSpeed) is enough: the module tells the client module these speeds, so the
 #                     client's HUD, particles and shake scale to them with no client-side edit.
-#        Default:     8.0
+#        Default:     6.0
 #
 
-ManaSpeedFlying.DiveSpeed = 8.0
+ManaSpeedFlying.DiveSpeed = 6.0
 
 #
 #    ManaSpeedFlying.BlendMs
@@ -143,13 +143,13 @@ ManaSpeedFlying.BoostAdd = 4.0
 #
 #    ManaSpeedFlying.BoostSpeed
 #        Description: Hard ceiling a boost may lift the mount to, as a multiplier of base run speed.
-#                     16.0 = 1600%. It is raised to at least the fastest configured state speed if
+#                     12.0 = 1200%. It is raised to at least the fastest configured state speed if
 #                     set lower, so it can never clamp normal (unboosted) flight. A boost adds
 #                     BoostAdd to the current speed, up to this value.
-#        Default:     16.0
+#        Default:     12.0
 #
 
-ManaSpeedFlying.BoostSpeed = 16.0
+ManaSpeedFlying.BoostSpeed = 12.0
 
 #
 #    ManaSpeedFlying.BoostFadeMs

@@ -7,7 +7,7 @@ companion to the client's **wxl-mana-speedflying** module:
 |------------|-------|
 | climbing   | 200%  |
 | leveling   | 280%  |
-| diving     | 800%  |
+| diving     | 600%  |
 
 `wxl-mana-speedflying` already animates the mount as climbing / gliding / diving, so the two agree: wings
 beat slowly on the way up, the glide rushes on the way down. The speed does not snap between states:
@@ -256,7 +256,7 @@ comments. Defaults:
 ManaSpeedFlying.Enable       = 1
 ManaSpeedFlying.ClimbSpeed   = 2.0    ; 200%
 ManaSpeedFlying.LevelSpeed   = 2.8    ; 280%
-ManaSpeedFlying.DiveSpeed    = 8.0    ; 800%
+ManaSpeedFlying.DiveSpeed    = 6.0    ; 600%
 ManaSpeedFlying.BlendMs      = 5500   ; default blend, proportional to the span it covers
 ManaSpeedFlying.DiveMs       = 4000   ; accelerate into a dive
 ManaSpeedFlying.GlideMs      = 18000  ; long glide from a dive back to level
@@ -265,7 +265,7 @@ ManaSpeedFlying.HoverMs      = 500    ; fixed accel/decel zone leaving a hover
 ManaSpeedFlying.SendMs       = 100    ; blend step; each change is broadcast, so the rate is quantized to 0.01
 ManaSpeedFlying.TimeoutMs    = 2500   ; restore the mount's own speed if the link goes quiet
 ManaSpeedFlying.BoostAdd     = 4.0    ; 400%: speed one boost adds to the glide
-ManaSpeedFlying.BoostSpeed   = 16.0   ; 1600%: hard boost ceiling (raised to the fastest state
+ManaSpeedFlying.BoostSpeed   = 12.0   ; 1200%: hard boost ceiling (raised to the fastest state
                                      ; speed if set lower)
 ManaSpeedFlying.BoostFadeMs  = 4000   ; how fast the burst bleeds back to the state speed
 ManaSpeedFlying.BoostCarryPct = 0.50  ; fraction of the boost folded into the glide

@@ -231,7 +231,7 @@ namespace
         bool   enabled      = true;
         float  climbSpeed   = 2.0f;  // 200% of base run speed
         float  levelSpeed   = 2.8f;  // 280%
-        float  diveSpeed    = 8.0f;  // 800%
+        float  diveSpeed    = 6.0f;  // 600%
         uint32 blendMs      = 5500;  // default blend, proportional to the span it must cover
         uint32 diveMs       = 4000;  // accelerate into a dive
         uint32 glideMs      = 18000; // long ease-in glide from a dive back to level
@@ -240,7 +240,7 @@ namespace
         uint32 sendMs       = 100;   // how often the blended speed may reach the client
         uint32 timeoutMs    = 2500;  // drop the link if no message arrives for this long
         float  boostAdd     = 4.0f;  // 400%: the speed one boost adds back to the glide
-        float  boostSpeed   = 16.0f; // 1600%: hard ceiling a boost may lift the speed to
+        float  boostSpeed   = 12.0f; // 1200%: hard ceiling a boost may lift the speed to
         uint32 boostFadeMs  = 4000;  // how fast a boost's added speed bleeds back to the state speed
         float  boostCarryPct = 0.50f; // fraction of a boost folded into the glide to outlast the fade
         float  boostGlidePct = 0.70f; // fraction of the ordinary glide a boost's carried speed may buy
@@ -1931,7 +1931,7 @@ public:
         cfg.enabled      = sConfigMgr->GetOption<bool>("ManaSpeedFlying.Enable", true);
         cfg.climbSpeed   = sConfigMgr->GetOption<float>("ManaSpeedFlying.ClimbSpeed", 2.0f);
         cfg.levelSpeed   = sConfigMgr->GetOption<float>("ManaSpeedFlying.LevelSpeed", 2.8f);
-        cfg.diveSpeed    = sConfigMgr->GetOption<float>("ManaSpeedFlying.DiveSpeed", 8.0f);
+        cfg.diveSpeed    = sConfigMgr->GetOption<float>("ManaSpeedFlying.DiveSpeed", 6.0f);
         cfg.blendMs      = sConfigMgr->GetOption<uint32>("ManaSpeedFlying.BlendMs", 5500);
         cfg.diveMs       = sConfigMgr->GetOption<uint32>("ManaSpeedFlying.DiveMs", 4000);
         cfg.glideMs      = sConfigMgr->GetOption<uint32>("ManaSpeedFlying.GlideMs", 18000);
@@ -1940,7 +1940,7 @@ public:
         cfg.sendMs       = sConfigMgr->GetOption<uint32>("ManaSpeedFlying.SendMs", 100);
         cfg.timeoutMs    = sConfigMgr->GetOption<uint32>("ManaSpeedFlying.TimeoutMs", 2500);
         cfg.boostAdd     = sConfigMgr->GetOption<float>("ManaSpeedFlying.BoostAdd", 4.0f);
-        cfg.boostSpeed   = sConfigMgr->GetOption<float>("ManaSpeedFlying.BoostSpeed", 16.0f);
+        cfg.boostSpeed   = sConfigMgr->GetOption<float>("ManaSpeedFlying.BoostSpeed", 12.0f);
         cfg.boostFadeMs  = sConfigMgr->GetOption<uint32>("ManaSpeedFlying.BoostFadeMs", 4000);
         cfg.boostCarryPct = sConfigMgr->GetOption<float>("ManaSpeedFlying.BoostCarryPct", 0.50f);
         cfg.boostGlidePct = sConfigMgr->GetOption<float>("ManaSpeedFlying.BoostGlidePct", 0.70f);
