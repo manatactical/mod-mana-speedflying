@@ -375,21 +375,21 @@ ManaSpeedFlying.SpeedCapPct = 1600.0
 #   17  Glide   3     Tucked Wings           1  client-side: the dive needs 10 degrees steeper,
 #                                              and opens the Wings branch
 #
-# Tier 1 in a branch is free to buy once the branch is open. Tiers 2, 3 and 4 open only on the tier
-# above them being at full rank, so one branch costs 3+3+3+1 = 10 points to fill with one capstone.
-# Tier 2 is a *pick*: of the two talents in it only one may hold a rank at a time -- refund one before
-# buying the other.
+# Tier 1 in a branch is free to buy, whichever branch it is: the whole first row is open at 0 points.
+# A branch's rows 2 to 4 need that branch **entered** -- its 1-point bridge ranked -- and each row opens
+# on the one above it being at full rank, so one branch costs 3+3+3+1 = 10 points to fill. Tier 2 is a
+# *pick*: of the two talents in it only one may hold a rank at a time -- refund one before buying the
+# other.
 #
 # The two bridges (16, 17) stand beside the branch's own tier-3 talent but do not count toward its
-# completion and cannot be refused as its rival, so Shallow Pull and Still Air can be ranked together
-# and the capstone beside them stays reachable. A bridge skips the rows above it (it is the way in) but
-# needs its own tier-3 row full, so it unlocks at the same 9 points its branch's tier-4 capstone does. A
-# point in 16 opens the Glide branch and a point in 17 opens Wings; that gate covers the opened branch's
-# **tier-1 entry only** -- its tiers 2 to 4 then open on the tier above being full. A branch's own tiers
-# never need the bridge, so a filled branch's capstone opens on its own 9 points. Dive is the
-# entry branch and is always open, which is what keeps the graph acyclic. Refunding a bridge refunds the
-# rank, never the points spent in the branch it opened: those keep their rank and only stop accepting
-# new ones.
+# completion and cannot be refused as its rival, so Shallow Pull and Still Air can be ranked together and
+# the capstone beside them stays reachable. A bridge unlocks as soon as **either branch it sits between**
+# has its tier-4 capstone ranked: Still Air on Aftershock (Dive) or Twin Vault (Glide), Tucked Wings on
+# Twin Vault (Glide) or Rising Current (Wings). A ranked bridge enters the branch it opens, which is what
+# makes its rows 2 to 4 buyable. That is the whole chain: Dive's capstone -> 16 Still Air -> Glide's rows
+# -> Glide's capstone -> 17 Tucked Wings -> Wings' rows. Dive's own tier 1 needs no bridge, which is what
+# keeps the graph acyclic. Refunding a bridge refunds the rank, never the points spent in the branch it
+# opened: those keep their rank and only stop accepting new ones.
 #
 # Held Breath and Rising Current both scale ClimbDecelMs. Their ranks are summed into one
 # multiplier, not compounded one after the other.

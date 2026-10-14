@@ -118,12 +118,11 @@ namespace
     };
 
     // Cost is 1 point per rank. Tiers 1 to 3 are three ranks each and tier 4 is a single-rank capstone,
-    // so filling one branch costs 10 of the 13 points a character can ever earn. Tier 1 is the branch's
-    // entry and needs its bridge ranked; tiers 2 to 4 open on the tier above being full, and only one
-    // talent of a (branch, tier) group may hold a rank: that exclusivity is the tier-2 pick. Both tier
-    // rules live in HandleTalentLearn. The two 1-point bridges at tier 3 are exempt from the rows above
-    // them but need their own row full, so they unlock with the capstone beside them; Dive is the entry
-    // branch every branch hangs off; see HandleTalentLearn for the exact order a write is validated in.
+    // so filling one branch costs 10 of the 13 points a character can ever earn. Tier 1 is free to buy in
+    // any branch; a branch's rows 2 to 4 need the branch *entered* (its bridge ranked), open on the row
+    // above being full, and only one talent of a (branch, tier) group may hold a rank: that exclusivity
+    // is the tier-2 pick. A bridge has no row above it and unlocks on either neighbouring capstone; the
+    // whole rule set lives in Talents::BridgeAvailable / BranchOpen and in ApplyTalentRank.
     // Append-only and never renumber -- the ids key the stored ranks -- and the client panel lays itself
     // out from these entries.
     const TalentDef kTalents[] =
@@ -304,10 +303,35 @@ namespace
             return quota > 0 && spent >= quota;
         }
 
-        // The unlock graph: Dive is the entry branch and is always open; kBranchGlide opens on a rank
-        // in the Dive bridge (16) and kBranchWings on a rank in the Glide bridge (17). A bridge is a
-        // gate, not a bypass, so a node whose own branch is closed is refused too -- see HandleTalentLearn.
-        // It opens the branch's tier-1 entry only: the branch's own tiers then open top down.
+        // Tier 4 of a branch is full: its capstone holds a rank. The bridge gate below reads this.
+        bool CapstoneRanked(uint8 branch) const
+        {
+            for (int i = 0; i < kTalentCount; ++i)
+                if (kTalents[i].branch == branch && kTalents[i].tier == 4 && !IsBridge(i) && ranks[i] > 0)
+                    return true;
+            return false;
+        }
+
+        // Is a bridge buyable? The two columns it is wedged between are the branch it opens and the one
+        // before that, and a rank in either branch's tier-4 capstone is what opens it -- so 16 Still Air
+        // (opens Glide) takes Dive's OR Glide's capstone and 17 Tucked Wings (opens Wings) takes Glide's
+        // OR Wings's. Deliberately NOT BranchOpen(the branch it opens): that made the two gates wait on
+        // each other (Glide's rows on 16, 16 on Glide's capstone), so neither could ever be bought from
+        // zero. The capstone breaks the cycle -- Dive's capstone needs no bridge, so 16 follows, then
+        // Glide's rows, then 17. Its own row never gates it either.
+        bool BridgeAvailable(int index) const
+        {
+            const uint8 opens = GateOpens(kTalents[index].id);
+            for (uint8 b = opens > kBranchDive ? opens - 1 : kBranchDive; b <= opens; ++b)
+                if (CapstoneRanked(b))
+                    return true;
+            return false;
+        }
+
+        // The unlock graph: Dive is the entry branch and is always entered; kBranchGlide is entered on a
+        // rank in the Dive bridge (16) and kBranchWings on a rank in the Glide bridge (17). This gates a
+        // branch's rows 2 to 4 -- its tier-1 entry is free to buy (see ApplyTalentRank), which is what
+        // lets a player start any branch from zero points.
         bool BranchOpen(int branch) const
         {
             if (branch <= kBranchDive || branch >= kBranchCount)
@@ -1059,22 +1083,19 @@ namespace
                     kTalents[i].tier == t.tier && p.tree.ranks[i] > 0)
                     return "tier-taken";
         }
-        // The bridge a branch opens is its **tier 1 only**: a branch is entered through its bridge, and
-        // its own tiers 1 to 4 then open top down on the tier above being full. Gating every tier on the
-        // bridge made a filled branch refuse its own tier 4 with no way to satisfy it. Dive is the entry
-        // branch and is always open, so its own gate never fires. Refused rather than dropped, so the
-        // panel shows why the node went grey.
-        // A bridge is refused when the branch it *sits in* is shut: 17 lives in Glide, so Wings cannot be
-        // opened straight from Dive -- 16 must be bought first. A bridge is a gate, not a bypass.
-        const bool bridge = IsBridge(index);
-        if (bridge ? !p.tree.BranchOpen(t.branch) : (t.tier == 1 && !p.tree.BranchOpen(t.branch)))
+        // The branch gate: a branch's tier-1 entry is free to buy, so any of the three can be started
+        // from zero points; its rows 2 to 4 need the branch entered, i.e. its bridge ranked. A bridge is
+        // refused when neither capstone beside it is ranked (BridgeAvailable). Refused rather than
+        // dropped, so the panel shows why the node went grey.
+        if (IsBridge(index) ? !BridgeAvailable(index)
+                            : (t.tier >= 2 && !p.tree.BranchOpen(t.branch)))
             return "tree-locked";
-        // A bridge skips the rows above it (it is the way in) and needs only its own row full, which is
-        // the branch's 9 points -- the same point its tier-4 capstone opens on. An ordinary talent needs
-        // every row above it full.
-        for (uint8 r = 1; r <= (bridge ? t.tier : t.tier - 1); ++r)
-            if (!p.tree.TierDone(t.branch, r))
-                return "tier-locked";
+        // A bridge has no rows above it to wait for -- BridgeAvailable is its whole gate. An ordinary
+        // talent needs every row above it full.
+        if (!IsBridge(index))
+            for (uint8 r = 1; r < t.tier; ++r)
+                if (!p.tree.TierDone(t.branch, r))
+                    return "tier-locked";
         // Only unspent points can be spent -- never the lifetime count, or a character that earned
         // the cap and then respecced could never spend the points the refund gave back.
         if (p.Unspent() <= 0)

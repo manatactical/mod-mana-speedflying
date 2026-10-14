@@ -190,17 +190,18 @@ ever shorten the tree. The panel's bar shows the 13-step progress and the yards 
 | 16 | Dive | 3 | Still Air | 1 | climb threshold 15° -> 25°, **and opens the Glide branch** |
 | 17 | Glide | 3 | Tucked Wings | 1 | dive threshold 35° -> 45°, **and opens the Wings branch** |
 
-- **Branch gate (`tree-locked`).** Dive is the entry branch and is always open. The Glide branch opens
-  on a rank in 16 Still Air; the Wings branch opens on a rank in 17 Tucked Wings. The gate covers the
-  branch's **tier 1 only**: a branch is entered through its bridge and its own tiers 1 to 4 then open top
-  down, so nothing inside a branch needs the bridge -- its tier-4 capstone opens on the branch's own 9
-  points. The bridge itself becomes buyable with its branch's tier-4 capstone (its own tier-3 row full).
-  A bridge is refused when the branch it *sits in* is closed: 17 lives in Glide, so Wings cannot be
-  opened straight from Dive -- 16 must be bought first. The graph is a chain, Dive -> 16 -> 17.
-- **Tier gate.** Tier 1 is free to buy inside an open branch. Tiers 2, 3 and 4 open only once the tier
-  above them is at full rank (in every talent it holds), so a branch is `3+3+3+1 = 10` points.
-  Bridges (16, 17) are skipped by the rows above them (they are the way in) but need their own row full,
-  so they unlock with the capstone beside them.
+- **Branch gate (`tree-locked`).** Every branch's **tier 1 is free to buy**, so any of the three can be
+  started from zero points. A branch's rows 2 to 4 need that branch **entered**: the Glide branch is
+  entered by a rank in 16 Still Air, the Wings branch by a rank in 17 Tucked Wings. So the whole first row
+  of the tree is green at 0 points, and the bridge is what opens the rest of the branch next door.
+- **Bridge unlock.** 16 Still Air and 17 Tucked Wings each unlock as soon as **either branch they sit
+  between** has its tier-4 capstone ranked: Still Air on Aftershock (Dive) **or** Twin Vault (Glide),
+  Tucked Wings on Twin Vault (Glide) **or** Rising Current (Wings). That is what keeps the graph acyclic
+  -- Dive's own capstone needs no bridge. The chain is Dive's capstone -> Still Air -> Glide's rows ->
+  Glide's capstone -> Tucked Wings -> Wings' rows.
+- **Tier gate.** Tier 1 is free to buy inside any branch. Tiers 2, 3 and 4 (and a bridge, which has no
+  row above it) open only once the tier above them is at full rank (in every talent it holds), so a
+  branch is `3+3+3+1 = 10` points.
 - **Tier 2 is a pick.** Of the two talents in a tier-2 group only one may hold a rank; the server
   refuses the rival with `tier-taken`. Switch halves by resetting the branch (`Reset`, or right-click a
   talent). A bridge is exempt -- it never competes with its branch's own pick, so Shallow Pull and Still
