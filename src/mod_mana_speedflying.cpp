@@ -1217,6 +1217,13 @@ namespace
         }
         Progress& p = it->second;
 
+        // The parsed batch, kept whole: the apply below is order-independent, so the entries are collected
+        // first rather than acted on as they are read.
+        constexpr int kBatchMax = 64;
+        int ids[kBatchMax] = {};
+        int tgt[kBatchMax] = {};
+        int count          = 0;
+
         const char* cur = list.c_str();
         while (*cur)
         {
@@ -1250,22 +1257,50 @@ namespace
                 SendTalentRefusal(player, "unknown-talent");
                 return;
             }
-            // Only climb. A target below the current rank is a refund, and refunds are the R op's job:
-            // ignoring it keeps a stale batch from silently unlearning something.
-            while (p.tree.ranks[index] < target)
+            if (count >= kBatchMax)
             {
-                if (const char* why = ApplyTalentRank(p, static_cast<int>(id)))
-                {
-                    SendTalentRefusal(player, why);
-                    return;
-                }
+                SendTalentRefusal(player, "bad-arg");
+                return;
             }
+            ids[count]   = static_cast<int>(id);
+            tgt[count]   = static_cast<int>(target);
+            ++count;
             if (*cur == ',') ++cur;
             else if (*cur)
             {
                 SendTalentRefusal(player, "bad-arg");
                 return;
             }
+        }
+
+        // Apply in passes, not left to right. A batch is a *set* of ranks, not a script: a draft that buys
+        // a bridge and a tier-3 node the bridge opens has a dependency the list order cannot always
+        // express -- the bridge must be ranked before the node it opens, but after its own branch's rows
+        // and capstone. Applying in the sent order refused an otherwise legal draft. Each pass ranks every
+        // entry whose gates are already met; the passes repeat until one ranks nothing, and the first gate
+        // still refusing after that is the reason the panel shows. A refusal aborts nothing mid-pass, so a
+        // partly satisfied draft still lands what it legally can.
+        const char* why = nullptr;
+        for (bool progress = true; progress; )
+        {
+            progress = false;
+            for (int e = 0; e < count; ++e)
+            {
+                const int ei = IndexOfTalentId(ids[e]);
+                if (ei < 0 || p.tree.ranks[ei] >= tgt[e]) continue;
+                if (const char* r = ApplyTalentRank(p, ids[e]))
+                {
+                    if (!why) why = r;
+                    continue;
+                }
+                progress = true;
+                why      = nullptr; // the pass moved, so an earlier stumble may yet resolve
+            }
+        }
+        if (why)
+        {
+            SendTalentRefusal(player, why);
+            return;
         }
         // Always answer, even on an empty body, so the panel redraws and never holds a stale count.
         SendTalentTally(player, p);

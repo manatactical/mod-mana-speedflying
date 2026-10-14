@@ -96,9 +96,12 @@ panel drifting out of step with the server. A tally is sent after every `W`, `B`
 
 `B` is the batch: a whole Confirm in one message, one `<id>:<target>` pair per staged talent, `target`
 being the **absolute** rank wanted rather than a delta. Absolute is what makes a resend idempotent --
-the server climbs each entry to its target and stops, so a duplicated message cannot double-spend. Each
-rank is still applied and validated one at a time in the listed order, so a batch that trips a gate
-(refusal `F`) stops there; one tally answers the whole batch. `W` is kept for an older client and for a
+the server climbs each entry to its target and stops, so a duplicated message cannot double-spend. The
+list is applied as a **set, not a script**: entries are retried in repeated passes, each pass ranking
+every entry whose gates are already met, until a pass ranks nothing. The order the pairs arrive in
+therefore carries no meaning -- a draft that ranks a bridge and a tier-3 node that bridge opens lands
+whichever way round the two are listed. The first gate still refusing once the passes stall is the
+refusal (`F`) the panel shows; one tally answers the whole batch. `W` is kept for an older client and for a
 single click.
 
 The optional trailing `,P<permille>,N<yards>` is the partial point as thousandths and the yards the
@@ -119,13 +122,13 @@ in the branch is at full rank (skipped for a bridge, which instead needs its own
 cap, and only then the derived unspent count. A forged learn message
 therefore costs exactly what a real one would, and a forged bridge costs a point like any other rank.
 
-A branch's tiers 3 and 4 are gated by the bridge in the branch before it, so a batch that both ranks a
-bridge and then spends in its tiers 3-4 must list the bridge first: a client sorts its staged targets by
-(branch, tier), which puts 16 Still Air inside the Dive group ahead of any Glide entry. A client that
-does not sort simply gets that entry refused and can Confirm again from a tree the first batch advanced.
+A branch's tier 3 is gated by the bridge touching it, so a batch may rank a bridge and spend in the tier
+that bridge opens in either order: the batch is applied in dependency passes (see `B` above), not left to
+right, so no client-side sorting is needed and none is done.
 
 A tier opens top down inside its branch: tiers 2 and 3 need the tier above them full in *every* talent
-it holds, so filling a branch costs `3+3+3+1 = 10` points. Tier 2 is a **pick of two** -- the server
+it holds, or tier 3 reached through a touching bridge, so filling a branch costs `3+3+3+1 = 10` points.
+Tier 4 needs its own branch's tier 3 full, never a bridge. Tier 2 is a **pick of two** -- the server
 refuses the rival of a ranked talent with `tier-taken`, so switching halves needs a respec.
 
 D5 **Aftershock** is the one client→server message that is not the tree itself: it reuses the
