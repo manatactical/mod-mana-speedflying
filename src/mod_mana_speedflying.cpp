@@ -335,13 +335,19 @@ namespace
             return BranchComplete(t.branch) || BranchComplete(GateOpens(t.id));
         }
 
-        // A bridge that has been ranked is what unlocks the branch it opens. No entry-branch case: Dive has
-        // no bridge, so this is false for it, which keeps Dive's tiers 3-4 strictly top-down.
+        // Is a bridge that touches `branch` ranked? A bridge is a connector: it sits in one branch and
+        // points at another (GateOpens), and a rank in it opens tier 3 of BOTH -- the branch it sits in
+        // and the branch it points at. Checking only the branch it points at made 16 Still Air (which
+        // sits in Dive) unable to open Dive's own tier 3, while 17 Tucked Wings (which points at Wings)
+        // worked: the asymmetry the player saw as "one pair confirms, the other does not". Tier 3 only,
+        // never tier 4 -- the capstone is earned by playing the row, not by the shortcut.
         bool BridgeOpensBranch(uint8 branch) const
         {
             for (int i = 0; i < kTalentCount; ++i)
-                if (GateOpens(kTalents[i].id) == branch && ranks[i] > 0)
-                    return true;
+            {
+                if (kTalents[i].branch != branch && GateOpens(kTalents[i].id) != branch) continue;
+                if (ranks[i] > 0) return true;
+            }
             return false;
         }
     };
@@ -1095,16 +1101,25 @@ namespace
         // panel shows why the node went grey.
         if (IsBridge(index) && !p.tree.BridgeAvailable(index))
             return "tree-locked";
-        // Its own row gate: the rows above must be full -- OR the branch is reached through its bridge,
-        // which is the whole point of a bridge (its rank opens the neighbour's tiers 3-4 without those
-        // first two rows). Dive has no bridge, so its tiers 3-4 stay strictly top-down.
+        // The row gate. Tiers 2 and 3 are top-down -- a row needs the row above it full -- and tier 3 may
+        // instead be reached through a bridge that touches the branch. Tier 4 is the exception: it always
+        // needs its OWN tier 3 full, so a bridge gets a branch into tier 3 but never past it. A bridge node
+        // is exempt; see BridgeAvailable.
         if (!IsBridge(index))
         {
-            bool rowsFull = true;
-            for (uint8 r = 1; r < t.tier; ++r)
-                if (!p.tree.TierDone(t.branch, r)) { rowsFull = false; break; }
-            if (!rowsFull && (t.tier < 3 || !p.tree.BridgeOpensBranch(t.branch)))
-                return "tier-locked";
+            if (t.tier >= 4)
+            {
+                if (!p.tree.TierDone(t.branch, 3))
+                    return "tier-locked";
+            }
+            else
+            {
+                bool rowsFull = true;
+                for (uint8 r = 1; r < t.tier; ++r)
+                    if (!p.tree.TierDone(t.branch, r)) { rowsFull = false; break; }
+                if (!rowsFull && !(t.tier == 3 && p.tree.BridgeOpensBranch(t.branch)))
+                    return "tier-locked";
+            }
         }
         // Only unspent points can be spent -- never the lifetime count, or a character that earned
         // the cap and then respecced could never spend the points the refund gave back.

@@ -120,8 +120,9 @@ rank or a point count can have moved.
 
 Every write validates in this order, inside one lock: config enabled, the player is on a mount, the
 character has a progress row, the talent id is known, `rank + 1 <= maxRank`, the tier's pick is free
-(skipped for a bridge), the branch is entered for a bridge and for tiers 3-4 only, every tier above it
-in the branch is at full rank (skipped for a bridge, which instead needs its own row full), the lifetime
+(skipped for a bridge), the bridge gate (a bridge needs a branch it touches to be complete), the tier
+row gate -- tiers 2 and 3 need the tier above full, or tier 3 a touching bridge, and tier 4 always needs
+its own tier 3 -- the lifetime
 cap, and only then the derived unspent count. A forged learn message
 therefore costs exactly what a real one would, and a forged bridge costs a point like any other rank.
 
