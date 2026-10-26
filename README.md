@@ -84,6 +84,7 @@ Client to server (an addon whisper, prefix `WXLTT`, a tab after the prefix):
     WXLTT<TAB>W<TAB><talentId>                     learn one rank
     WXLTT<TAB>B<TAB><id>:<target>[,<id>:<target>]  learn up to an absolute rank each (a draft)
     WXLTT<TAB>R<TAB><1|2|3|A>                      refund a tree (1 dive, 2 glide, 3 wings) or everything
+    WXLTT<TAB>U<TAB><talentId>                     take one rank back; whatever ahead of it needed it goes too
     WXLTT<TAB>Q                                    request the tree
 
 `R` also accepts `b1`..`b3` for an older build. Every `B` is absolute, so a resent batch is the same request
@@ -102,7 +103,7 @@ table has a different `<n>` ignores the ranks rather than mis-assigning them. A 
 `W`, `B`, `R` and `Q`. The bar moves on its own, so it rides a `P:` body about twice a second while flight
 accrues yards.
 
-Refusal reasons (`F:`): `locked` (no parent is at full rank), `cap-taken` (another big talent holds a rank),
+Refusal reasons (`F:`): `locked` (no parent is at full rank), `cap-taken` (another big talent holds a rank), `ring-full` (a plain talent of the same tree and ring is at full rank),
 `max-rank`, `no-points`, `unknown` (an id this build does not know), `no-progress`, `not-mounted`,
 `disabled`, `bad-arg`, `bad-branch`, `no-money`. A refusal is always answered, so the panel cannot drift.
 

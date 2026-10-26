@@ -157,9 +157,9 @@ namespace
     {105, 0, 2, 1, 3, 1, {{E_DiveYield, 0.1f}, {E_Count, 0.0f}, {E_Count, 0.0f}}, {102, 0, 0}, "Dive Yield", "10% more progress while diving, per rank."},  // Dive Yield
     {106, 0, 3, 1, 3, 1, {{E_ShallowPull, 15.0f}, {E_Count, 0.0f}, {E_Count, 0.0f}}, {103, 104, 0}, "Shallow Pull", "Pull out of a dive 15 degrees shallower, per rank."},  // Shallow Pull
     {107, 0, 3, 1, 1, 1, {{E_Aftershock, 1.0f}, {E_Count, 0.0f}, {E_Count, 0.0f}}, {104, 105, 0}, "Aftershock", "Releasing the boost key in a dive boosts at once."},  // Aftershock
-    {108, 0, 4, 1, 3, 1, {{E_DiveSpeed, 0.05f}, {E_Count, 0.0f}, {E_Count, 0.0f}}, {106, 140, 0}, "Gravity Well", "Dive speed +5% per rank."},  // Gravity Well
+    {108, 0, 4, 1, 3, 1, {{E_DiveSpeed, 0.05f}, {E_Count, 0.0f}, {E_Count, 0.0f}}, {106, 0, 0}, "Gravity Well", "Dive speed +5% per rank."},  // Gravity Well
     {109, 0, 4, 1, 3, 1, {{E_BoostCarry, 0.08f}, {E_Count, 0.0f}, {E_Count, 0.0f}}, {106, 107, 0}, "Rebound", "Keep 8% more of a boost after it ends, per rank."},  // Rebound
-    {110, 0, 4, 1, 2, 1, {{E_BoostAddDive, 0.2f}, {E_Count, 0.0f}, {E_Count, 0.0f}}, {107, 142, 0}, "Dive Bomb", "Boosts add 20% more speed while diving, per rank."},  // Dive Bomb
+    {110, 0, 4, 1, 2, 1, {{E_BoostAddDive, 0.2f}, {E_Count, 0.0f}, {E_Count, 0.0f}}, {107, 0, 0}, "Dive Bomb", "Boosts add 20% more speed while diving, per rank."},  // Dive Bomb
     {111, 0, 5, 1, 1, 1, {{E_DiveMs, -0.35f}, {E_Count, 0.0f}, {E_Count, 0.0f}}, {108, 109, 0}, "Meteor", "Dives start 35% faster."},  // Meteor
     {112, 0, 5, 1, 2, 1, {{E_DiveSpeed, 0.1f}, {E_Count, 0.0f}, {E_Count, 0.0f}}, {109, 0, 0}, "Hammerfall", "Dive speed +10% per rank."},  // Hammerfall
     {113, 0, 5, 1, 2, 2, {{E_SpeedCap, 200.0f}, {E_DiveSpeed, 0.04f}, {E_Count, 0.0f}}, {109, 110, 0}, "Redline", "Dive speed +4% per rank and a higher speed limit."},  // Redline
@@ -170,9 +170,9 @@ namespace
     {118, 1, 2, 1, 2, 1, {{E_HoverMs, -0.3f}, {E_Count, 0.0f}, {E_Count, 0.0f}}, {115, 0, 0}, "Hover Poise", "Leave a hover 30% faster, per rank."},  // Hover Poise
     {119, 1, 3, 1, 3, 1, {{E_LevelYield, 0.08f}, {E_Count, 0.0f}, {E_Count, 0.0f}}, {116, 117, 0}, "Long Haul", "8% more progress in level flight and climbs, per rank."},  // Long Haul
     {120, 1, 3, 1, 1, 1, {{E_BoostGlide, 0.15f}, {E_Count, 0.0f}, {E_Count, 0.0f}}, {117, 118, 0}, "Glide Anchor", "Boosts keep 15% more of your glide speed."},  // Glide Anchor
-    {121, 1, 4, 1, 3, 1, {{E_LevelSpeed, 0.06f}, {E_Count, 0.0f}, {E_Count, 0.0f}}, {119, 141, 0}, "Jetstream", "Level flight speed +6% per rank."},  // Jetstream
+    {121, 1, 4, 1, 3, 1, {{E_LevelSpeed, 0.06f}, {E_Count, 0.0f}, {E_Count, 0.0f}}, {119, 0, 0}, "Jetstream", "Level flight speed +6% per rank."},  // Jetstream
     {122, 1, 4, 1, 3, 1, {{E_BlendMs, -0.06f}, {E_Count, 0.0f}, {E_Count, 0.0f}}, {119, 120, 0}, "Draft", "Speed changes 6% faster per rank."},  // Draft
-    {123, 1, 4, 1, 3, 1, {{E_ClimbSpeed, 0.08f}, {E_Count, 0.0f}, {E_Count, 0.0f}}, {120, 140, 0}, "Updraft Master", "Climb speed +8% per rank."},  // Updraft Master
+    {123, 1, 4, 1, 3, 1, {{E_ClimbSpeed, 0.08f}, {E_Count, 0.0f}, {E_Count, 0.0f}}, {120, 0, 0}, "Updraft Master", "Climb speed +8% per rank."},  // Updraft Master
     {124, 1, 5, 1, 1, 1, {{E_GlideMs, 0.5f}, {E_Count, 0.0f}, {E_Count, 0.0f}}, {121, 122, 0}, "Eternal Current", "Glide 50% longer after a dive."},  // Eternal Current
     {125, 1, 5, 1, 2, 1, {{E_LevelSpeed, 0.1f}, {E_Count, 0.0f}, {E_Count, 0.0f}}, {122, 0, 0}, "Highway", "Level flight speed +10% per rank."},  // Highway
     {126, 1, 5, 1, 2, 1, {{E_BoostGlide, 0.2f}, {E_Count, 0.0f}, {E_Count, 0.0f}}, {122, 123, 0}, "Skybound", "Boosts keep 20% more of your glide speed, per rank."},  // Skybound
@@ -183,9 +183,9 @@ namespace
     {131, 2, 2, 1, 1, 1, {{E_BoostStacks, 1.0f}, {E_Count, 0.0f}, {E_Count, 0.0f}}, {128, 0, 0}, "Wing Reserve", "Hold 1 more boost charge."},  // Wing Reserve
     {132, 2, 3, 1, 3, 1, {{E_BoostCarry, 0.1f}, {E_Count, 0.0f}, {E_Count, 0.0f}}, {129, 130, 0}, "Banked Momentum", "Keep 10% more of a boost after it ends, per rank."},  // Banked Momentum
     {133, 2, 3, 1, 1, 1, {{E_BoostSpeed, 0.06f}, {E_Count, 0.0f}, {E_Count, 0.0f}}, {130, 131, 0}, "Overcharge", "Boost speed limit +6%."},  // Overcharge
-    {134, 2, 4, 1, 3, 1, {{E_BoostAdd, 0.06f}, {E_Count, 0.0f}, {E_Count, 0.0f}}, {132, 142, 0}, "Surge Cells", "Boosts add 6% more speed per rank."},  // Surge Cells
+    {134, 2, 4, 1, 3, 1, {{E_BoostAdd, 0.06f}, {E_Count, 0.0f}, {E_Count, 0.0f}}, {132, 0, 0}, "Surge Cells", "Boosts add 6% more speed per rank."},  // Surge Cells
     {135, 2, 4, 1, 3, 1, {{E_StackInterval, -0.04f}, {E_Count, 0.0f}, {E_Count, 0.0f}}, {132, 133, 0}, "Fast Cells", "Boost charges refill 4% faster per rank."},  // Fast Cells
-    {136, 2, 4, 1, 1, 1, {{E_StartStacks, 1.0f}, {E_Count, 0.0f}, {E_Count, 0.0f}}, {133, 141, 0}, "Reserve Charge", "Start each flight with 1 more boost charge."},  // Reserve Charge
+    {136, 2, 4, 1, 1, 1, {{E_StartStacks, 1.0f}, {E_Count, 0.0f}, {E_Count, 0.0f}}, {133, 0, 0}, "Reserve Charge", "Start each flight with 1 more boost charge."},  // Reserve Charge
     {137, 2, 5, 1, 1, 1, {{E_BoostStacks, 1.0f}, {E_Count, 0.0f}, {E_Count, 0.0f}}, {134, 135, 0}, "Twin Vault", "Hold 1 more boost charge."},  // Twin Vault
     {138, 2, 5, 1, 2, 1, {{E_BoostSpeed, 0.06f}, {E_Count, 0.0f}, {E_Count, 0.0f}}, {135, 0, 0}, "Overdrive", "Boost speed limit +6% per rank."},  // Overdrive
     {139, 2, 5, 1, 2, 1, {{E_BoostFade, 0.1f}, {E_Count, 0.0f}, {E_Count, 0.0f}}, {135, 136, 0}, "Last Gasp", "Boosts last 10% longer per rank."},  // Last Gasp
@@ -296,12 +296,85 @@ namespace
     // the talent may take a rank, else the refusal reason the panel shows. Mirrored by TalentUI.cpp.
     // A cap is refused while another cap holds a rank; any non-core node opens once ANY parent is at full rank.
     // ParentFull is the one definition of that, shared with the refund cascade.
+    struct BridgeReach { uint16 bridge; uint16 node[2]; };
+    constexpr BridgeReach kBridgeReach[] = { {140, {108, 123}}, {141, {121, 136}}, {142, {110, 134}},
+                                       {143, {111, 126}}, {144, {124, 139}}, {145, {113, 137}} };
+
     bool ParentFull(const int* ranks, int index)
     {
         for (int k = 0; k < 3; ++k)
         {
             const int pi = kTalents[index].parents[k] ? IndexOfTalentId(kTalents[index].parents[k]) : -1;
             if (pi >= 0 && ranks[pi] >= kTalents[pi].maxRank)
+                return true;
+        }
+        // A bridge (ring 3 or 5) at full rank opens one talent of the next ring in each tree it joins (the one closest to it, kBridgeReach),
+        // once the bridge's parent in the OTHER tree is full: it leads forward into the other tree, never back to the
+        // tree the player came from.
+        if (kTalents[index].kind == KindNode)
+        {
+            for (const BridgeReach& r : kBridgeReach)
+            {
+                const int b = IndexOfTalentId(r.bridge);
+                if (b < 0 || ranks[b] < kTalents[b].maxRank)
+                    continue;
+                for (int s = 0; s < 2; ++s)
+                {
+                    const int other = IndexOfTalentId(r.node[1 - s]);
+                    if (r.node[s] != kTalents[index].id || other < 0)
+                        continue;
+                    for (int k = 0; k < 3; ++k)
+                    {
+                        const int pi = kTalents[b].parents[k] ? IndexOfTalentId(kTalents[b].parents[k]) : -1;
+                        if (pi >= 0 && kTalents[pi].tree == kTalents[other].tree && ranks[pi] >= kTalents[pi].maxRank)
+                            return true;
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
+    // A plain talent is refused while another plain talent of the same tree and ring is at full rank: a full
+    // talent closes its ring, so the next ring is the only way on.
+    bool SiblingFull(const int* ranks, int index)
+    {
+        const TalentDef& d = kTalents[index];
+        if (d.kind != KindNode)
+            return false;
+        for (int i = 0; i < kTalentCount; ++i)
+            if (i != index && kTalents[i].kind == KindNode && kTalents[i].tree == d.tree &&
+                kTalents[i].ring == d.ring && ranks[i] >= kTalents[i].maxRank)
+                return true;
+        return false;
+    }
+
+    // A bridge is refused while another bridge joining the same two trees holds a rank: the second would lead back
+    // to the tree the player came from. A bridge's two trees are the trees of the two nodes it reaches.
+    bool BridgeTaken(const int* ranks, int index)
+    {
+        if (kTalents[index].kind != KindBridge)
+            return false;
+        auto pairOf = [](uint16 bridge, int& a, int& b)
+        {
+            for (const BridgeReach& r : kBridgeReach)
+                if (r.bridge == bridge)
+                {
+                    a = kTalents[IndexOfTalentId(r.node[0])].tree;
+                    b = kTalents[IndexOfTalentId(r.node[1])].tree;
+                    return;
+                }
+        };
+        int a = -1, b = -1;
+        pairOf(kTalents[index].id, a, b);
+        for (const BridgeReach& r : kBridgeReach)
+        {
+            const int i = IndexOfTalentId(r.bridge);
+            if (i < 0 || i == index || ranks[i] <= 0)
+                continue;
+            int c = -1, e = -1;
+            pairOf(r.bridge, c, e);
+            if ((a == c && b == e) || (a == e && b == c))
                 return true;
         }
         return false;
@@ -312,6 +385,8 @@ namespace
         const TalentDef& d = kTalents[index];
         if (t.ranks[index] >= d.maxRank)
             return "max-rank";
+        if (BridgeTaken(t.ranks, index))
+            return "bridge-taken";
         if (d.kind == KindCap)
         {
             for (int i = 0; i < kTalentCount; ++i)
@@ -320,6 +395,8 @@ namespace
         }
         if (d.kind != KindCore && !ParentFull(t.ranks, index))
             return "locked";
+        if (SiblingFull(t.ranks, index))
+            return "ring-full";
         if (unspent <= 0)
             return "no-points";
         return nullptr;
@@ -1119,6 +1196,31 @@ namespace
         SendTalentTally(player, p);
     }
 
+    // Unlock only checks parents when a point is bought, so anything that lost its last full-rank parent must go
+    // too, or it could be kept for free while the refunded points are spent elsewhere. Repeats until stable: each
+    // drop can orphan the next ring, so removing one talent breaks the whole chain ahead of it. Returns the ranks
+    // dropped (the points handed back).
+    int DropOrphans(Talents& t)
+    {
+        int dropped = 0;
+        for (bool changed = true; changed;)
+        {
+            changed = false;
+            for (int i = 0; i < kTalentCount; ++i)
+            {
+                if (!t.ranks[i] || kTalents[i].kind == KindCore)
+                    continue;
+                if (!ParentFull(t.ranks, i))
+                {
+                    dropped += t.ranks[i];
+                    t.ranks[i] = 0;
+                    changed = true;
+                }
+            }
+        }
+        return dropped;
+    }
+
     // Respec: refund one tree ("b1".."b3", or a bare "1".."3": dive, glide, wings) or everything ("A").
     // Free unless Talents.RespecCost is set. A tree refund clears that tree's ordinary and linked talents, then
     // anything left with no ranked parent (so a kept bridge or big talent cannot outlive its path). The argument is
@@ -1174,29 +1276,51 @@ namespace
             ++refunded;
         }
 
-        // Unlock only checks parents when a point is bought, so a refund must also drop whatever lost its last
-        // full-rank parent (a kept big talent, a bridge, a linked talent), or it could be kept for free while the
-        // refunded points are spent elsewhere. Repeat until stable: each drop can orphan the next ring.
-        for (bool changed = true; changed;)
-        {
-            changed = false;
-            for (int i = 0; i < kTalentCount; ++i)
-            {
-                if (!p.tree.ranks[i] || kTalents[i].kind == KindCore)
-                    continue;
-                if (!ParentFull(p.tree.ranks, i))
-                {
-                    p.tree.ranks[i] = 0;
-                    ++refunded;
-                    changed = true;
-                }
-            }
-        }
+        refunded += DropOrphans(p.tree);
         if (!refunded)
         {
             SendTalentTally(player, p); // nothing to refund; still answer, so the panel redraws
             return;
         }
+
+        if (g_talentCfg.respecCost)
+            player->ModifyMoney(-static_cast<int32>(g_talentCfg.respecCost));
+        p.Rebuild(g_cfg, g_speedCapPct);
+        p.dirty = true;
+        SendTalentTally(player, p);
+    }
+
+    // Take one rank back from talent `talentId` and, with it, every talent ahead of it that needed it (DropOrphans).
+    // Free unless Talents.RespecCost is set, like a respec.
+    void HandleTalentUnspend(Player* player, uint64 guid, int talentId)
+    {
+        auto it = g_progress.find(guid);
+        if (it == g_progress.end() || !it->second.loaded)
+        {
+            SendTalentRefusal(player, "no-progress");
+            return;
+        }
+        Progress& p = it->second;
+
+        const int index = IndexOfTalentId(talentId);
+        if (index < 0)
+        {
+            SendTalentRefusal(player, "bad-id");
+            return;
+        }
+        if (p.tree.ranks[index] <= 0)
+        {
+            SendTalentTally(player, p); // nothing there; answer so the panel redraws
+            return;
+        }
+        if (g_talentCfg.respecCost && !player->HasEnoughMoney(g_talentCfg.respecCost))
+        {
+            SendTalentRefusal(player, "no-money");
+            return;
+        }
+
+        --p.tree.ranks[index];
+        DropOrphans(p.tree);
 
         if (g_talentCfg.respecCost)
             player->ModifyMoney(-static_cast<int32>(g_talentCfg.respecCost));
@@ -1359,6 +1483,24 @@ namespace
                     break;
                 }
                 HandleTalentLearn(player, guid, static_cast<int>(id));
+                break;
+            }
+            case 'U':
+            {
+                if (msg.size() <= op + 2 || msg[op + 1] != '\t')
+                {
+                    SendTalentRefusal(player, "bad-arg");
+                    break;
+                }
+                const char* arg = msg.c_str() + op + 2;
+                char*       end = nullptr;
+                const long  id  = std::strtol(arg, &end, 10);
+                if (end == arg || *end != '\0' || id < 0 || id > 65535)
+                {
+                    SendTalentRefusal(player, "bad-arg");
+                    break;
+                }
+                HandleTalentUnspend(player, guid, static_cast<int>(id));
                 break;
             }
             case 'B':
