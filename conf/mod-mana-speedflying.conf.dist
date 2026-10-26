@@ -245,14 +245,14 @@ Talents.Enable = 1
 #
 #    Talents.MaxPoints
 #        Description: Lifetime points one character may ever earn. The core costs 1 point and every other
-#                     rank costs 1 point, so a build can hold at most this many ranks in total. 140 =
-#                     the core plus 139 ranks. At the cap the yard meter stops charging and the panel
+#                     rank costs 1 point, so a build can hold at most this many ranks in total. 103 =
+#                     the most ranks any legal build can hold (the rings close as they fill). At the cap the yard meter stops charging and the panel
 #                     says every point is earned. Raise Talents.MaxPointsPerMinute too: at its default of
-#                     4 caps the burst rate only; the total yards for all 139 points is about 2.8M.
-#        Default:     140
+#                     4 caps the burst rate only; the total yards for the first 25 points is about 28M.
+#        Default:     103
 #
 
-Talents.MaxPoints = 140
+Talents.MaxPoints = 103
 
 #
 #    Talents.BaseYards
@@ -261,20 +261,37 @@ Talents.MaxPoints = 140
 #                     Talents.DiveAccrual times its distance (1.5 by default, so diving pays best).
 #                     Slipstream-style yard_step talents shorten the step per rank; they never bank yards
 #                     faster.
-#        Default:     500.0
+#        Default:     100.0
 #
 
-Talents.BaseYards = 500.0
+Talents.BaseYards = 100.0
 
 #
 #    Talents.YardStep
 #        Description: How much more each point costs than the point before it, as a fraction, compounding:
-#                     0.04 means each point needs 4% more yards than the one before, so the 139th point
-#                     costs about 500 * 1.04^138 = roughly 112,000 yards. 0 makes every point cost BaseYards.
-#        Default:     0.04
+#                     1.00 means point 1 needs 100% more yards than point 0 (it doubles). The step eases down to YardStepLate over
+#                     YardSoothe points. With the defaults point 5 costs about 2,700 yards, point 10 about
+#                     43,000, point 25 about 5.4M. 0 makes every point cost BaseYards.
+#        Default:     1.00
 #
 
-Talents.YardStep = 0.04
+Talents.YardStep = 1.00
+
+#
+#    Talents.YardStepLate
+#        Description: The step once the curve has soothed (from point YardSoothe on).
+#        Default:     0.10
+#
+
+Talents.YardStepLate = 0.10
+
+#
+#    Talents.YardSoothe
+#        Description: How many points the step takes to ease linearly from YardStep to YardStepLate.
+#        Default:     25
+#
+
+Talents.YardSoothe = 25
 
 #
 #    Talents.MaxPointsPerMinute

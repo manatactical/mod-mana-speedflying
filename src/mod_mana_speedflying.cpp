@@ -150,54 +150,54 @@ namespace
     const TalentDef kTalents[] =
     {
     {100, 3, 0, 0, 1, 1, {{E_SpeedAll, 0.2f}, {E_Count, 0.0f}, {E_Count, 0.0f}}, {0, 0, 0}, "Windborn", "All flight speeds +20%."},  // Windborn
-    {101, 0, 1, 1, 3, 1, {{E_DiveMs, -0.08f}, {E_Count, 0.0f}, {E_Count, 0.0f}}, {100, 0, 0}, "Steep Descent", "Dives start 8% faster per rank."},  // Steep Descent
-    {102, 0, 1, 1, 3, 1, {{E_ClimbDecel, 0.15f}, {E_Count, 0.0f}, {E_Count, 0.0f}}, {100, 0, 0}, "Held Breath", "Keep your dive speed 15% longer when you climb, per rank."},  // Held Breath
-    {103, 0, 2, 1, 3, 1, {{E_DiveSpeed, 0.06f}, {E_Count, 0.0f}, {E_Count, 0.0f}}, {101, 0, 0}, "Terminal Velocity", "Dive speed +6% per rank."},  // Terminal Velocity
-    {104, 0, 2, 1, 3, 1, {{E_BlendMs, -0.08f}, {E_Count, 0.0f}, {E_Count, 0.0f}}, {101, 102, 0}, "Sharp Banking", "Speed changes 8% faster per rank."},  // Sharp Banking
-    {105, 0, 2, 1, 3, 1, {{E_DiveYield, 0.1f}, {E_Count, 0.0f}, {E_Count, 0.0f}}, {102, 0, 0}, "Dive Yield", "10% more progress while diving, per rank."},  // Dive Yield
-    {106, 0, 3, 1, 3, 1, {{E_ShallowPull, 15.0f}, {E_Count, 0.0f}, {E_Count, 0.0f}}, {103, 104, 0}, "Shallow Pull", "Pull out of a dive 15 degrees shallower, per rank."},  // Shallow Pull
+    {101, 0, 1, 1, 3, 1, {{E_DiveMs, -0.02f}, {E_Count, 0.0f}, {E_Count, 0.0f}}, {100, 0, 0}, "Steep Descent", "Dives start 2% faster per rank."},  // Steep Descent
+    {102, 0, 1, 1, 3, 1, {{E_ClimbDecel, 0.03f}, {E_Count, 0.0f}, {E_Count, 0.0f}}, {100, 0, 0}, "Held Breath", "Keep your dive speed 3% longer when you climb, per rank."},  // Held Breath
+    {103, 0, 2, 1, 3, 1, {{E_DiveSpeed, 0.02f}, {E_Count, 0.0f}, {E_Count, 0.0f}}, {101, 0, 0}, "Terminal Velocity", "Dive speed +2% per rank."},  // Terminal Velocity
+    {104, 0, 2, 1, 3, 1, {{E_BlendMs, -0.03f}, {E_Count, 0.0f}, {E_Count, 0.0f}}, {101, 102, 0}, "Sharp Banking", "Speed changes 3% faster per rank."},  // Sharp Banking
+    {105, 0, 2, 1, 3, 1, {{E_DiveYield, 0.04f}, {E_Count, 0.0f}, {E_Count, 0.0f}}, {102, 0, 0}, "Dive Yield", "4% more progress while diving, per rank."},  // Dive Yield
+    {106, 0, 3, 1, 3, 1, {{E_ShallowPull, 9.0f}, {E_Count, 0.0f}, {E_Count, 0.0f}}, {103, 104, 0}, "Shallow Pull", "Pull out of a dive 9 degrees shallower, per rank."},  // Shallow Pull
     {107, 0, 3, 1, 1, 1, {{E_Aftershock, 1.0f}, {E_Count, 0.0f}, {E_Count, 0.0f}}, {104, 105, 0}, "Aftershock", "Releasing the boost key in a dive boosts at once."},  // Aftershock
-    {108, 0, 4, 1, 3, 1, {{E_DiveSpeed, 0.05f}, {E_Count, 0.0f}, {E_Count, 0.0f}}, {106, 0, 0}, "Gravity Well", "Dive speed +5% per rank."},  // Gravity Well
-    {109, 0, 4, 1, 3, 1, {{E_BoostCarry, 0.08f}, {E_Count, 0.0f}, {E_Count, 0.0f}}, {106, 107, 0}, "Rebound", "Keep 8% more of a boost after it ends, per rank."},  // Rebound
-    {110, 0, 4, 1, 2, 1, {{E_BoostAddDive, 0.2f}, {E_Count, 0.0f}, {E_Count, 0.0f}}, {107, 0, 0}, "Dive Bomb", "Boosts add 20% more speed while diving, per rank."},  // Dive Bomb
+    {108, 0, 4, 1, 3, 1, {{E_DiveSpeed, 0.04f}, {E_Count, 0.0f}, {E_Count, 0.0f}}, {106, 0, 0}, "Gravity Well", "Dive speed +4% per rank."},  // Gravity Well
+    {109, 0, 4, 1, 3, 1, {{E_BoostCarry, 0.06f}, {E_Count, 0.0f}, {E_Count, 0.0f}}, {106, 107, 0}, "Rebound", "Keep 6% more of a boost after it ends, per rank."},  // Rebound
+    {110, 0, 4, 1, 2, 1, {{E_BoostAddDive, 0.16f}, {E_Count, 0.0f}, {E_Count, 0.0f}}, {107, 0, 0}, "Dive Bomb", "Boosts add 16% more speed while diving, per rank."},  // Dive Bomb
     {111, 0, 5, 1, 1, 1, {{E_DiveMs, -0.35f}, {E_Count, 0.0f}, {E_Count, 0.0f}}, {108, 109, 0}, "Meteor", "Dives start 35% faster."},  // Meteor
     {112, 0, 5, 1, 2, 1, {{E_DiveSpeed, 0.1f}, {E_Count, 0.0f}, {E_Count, 0.0f}}, {109, 0, 0}, "Hammerfall", "Dive speed +10% per rank."},  // Hammerfall
     {113, 0, 5, 1, 2, 2, {{E_SpeedCap, 200.0f}, {E_DiveSpeed, 0.04f}, {E_Count, 0.0f}}, {109, 110, 0}, "Redline", "Dive speed +4% per rank and a higher speed limit."},  // Redline
-    {114, 1, 1, 1, 3, 1, {{E_GlideMs, 0.12f}, {E_Count, 0.0f}, {E_Count, 0.0f}}, {100, 0, 0}, "Long Glide", "Glide 12% longer after a dive, per rank."},  // Long Glide
-    {115, 1, 1, 1, 3, 1, {{E_ClimbSpeed, 0.06f}, {E_Count, 0.0f}, {E_Count, 0.0f}}, {100, 0, 0}, "Updraft", "Climb speed +6% per rank."},  // Updraft
-    {116, 1, 2, 1, 3, 1, {{E_LevelSpeed, 0.05f}, {E_Count, 0.0f}, {E_Count, 0.0f}}, {114, 0, 0}, "Skyward Path", "Level flight speed +5% per rank."},  // Skyward Path
-    {117, 1, 2, 1, 3, 1, {{E_YardStep, -0.12f}, {E_Count, 0.0f}, {E_Count, 0.0f}}, {114, 115, 0}, "Slipstream", "Point costs grow 12% slower, per rank."},  // Slipstream
-    {118, 1, 2, 1, 2, 1, {{E_HoverMs, -0.3f}, {E_Count, 0.0f}, {E_Count, 0.0f}}, {115, 0, 0}, "Hover Poise", "Leave a hover 30% faster, per rank."},  // Hover Poise
-    {119, 1, 3, 1, 3, 1, {{E_LevelYield, 0.08f}, {E_Count, 0.0f}, {E_Count, 0.0f}}, {116, 117, 0}, "Long Haul", "8% more progress in level flight and climbs, per rank."},  // Long Haul
-    {120, 1, 3, 1, 1, 1, {{E_BoostGlide, 0.15f}, {E_Count, 0.0f}, {E_Count, 0.0f}}, {117, 118, 0}, "Glide Anchor", "Boosts keep 15% more of your glide speed."},  // Glide Anchor
-    {121, 1, 4, 1, 3, 1, {{E_LevelSpeed, 0.06f}, {E_Count, 0.0f}, {E_Count, 0.0f}}, {119, 0, 0}, "Jetstream", "Level flight speed +6% per rank."},  // Jetstream
-    {122, 1, 4, 1, 3, 1, {{E_BlendMs, -0.06f}, {E_Count, 0.0f}, {E_Count, 0.0f}}, {119, 120, 0}, "Draft", "Speed changes 6% faster per rank."},  // Draft
-    {123, 1, 4, 1, 3, 1, {{E_ClimbSpeed, 0.08f}, {E_Count, 0.0f}, {E_Count, 0.0f}}, {120, 0, 0}, "Updraft Master", "Climb speed +8% per rank."},  // Updraft Master
+    {114, 1, 1, 1, 3, 1, {{E_GlideMs, 0.02f}, {E_Count, 0.0f}, {E_Count, 0.0f}}, {100, 0, 0}, "Long Glide", "Glide 2% longer after a dive, per rank."},  // Long Glide
+    {115, 1, 1, 1, 3, 1, {{E_ClimbSpeed, 0.01f}, {E_Count, 0.0f}, {E_Count, 0.0f}}, {100, 0, 0}, "Updraft", "Climb speed +1% per rank."},  // Updraft
+    {116, 1, 2, 1, 3, 1, {{E_LevelSpeed, 0.02f}, {E_Count, 0.0f}, {E_Count, 0.0f}}, {114, 0, 0}, "Skyward Path", "Level flight speed +2% per rank."},  // Skyward Path
+    {117, 1, 2, 1, 3, 1, {{E_YardStep, -0.05f}, {E_Count, 0.0f}, {E_Count, 0.0f}}, {114, 115, 0}, "Slipstream", "Point costs grow 5% slower, per rank."},  // Slipstream
+    {118, 1, 2, 1, 2, 1, {{E_HoverMs, -0.12f}, {E_Count, 0.0f}, {E_Count, 0.0f}}, {115, 0, 0}, "Hover Poise", "Leave a hover 12% faster, per rank."},  // Hover Poise
+    {119, 1, 3, 1, 3, 1, {{E_LevelYield, 0.05f}, {E_Count, 0.0f}, {E_Count, 0.0f}}, {116, 117, 0}, "Long Haul", "5% more progress in level flight and climbs, per rank."},  // Long Haul
+    {120, 1, 3, 1, 1, 1, {{E_BoostGlide, 0.09f}, {E_Count, 0.0f}, {E_Count, 0.0f}}, {117, 118, 0}, "Glide Anchor", "Boosts keep 9% more of your glide speed."},  // Glide Anchor
+    {121, 1, 4, 1, 3, 1, {{E_LevelSpeed, 0.05f}, {E_Count, 0.0f}, {E_Count, 0.0f}}, {119, 0, 0}, "Jetstream", "Level flight speed +5% per rank."},  // Jetstream
+    {122, 1, 4, 1, 3, 1, {{E_BlendMs, -0.05f}, {E_Count, 0.0f}, {E_Count, 0.0f}}, {119, 120, 0}, "Draft", "Speed changes 5% faster per rank."},  // Draft
+    {123, 1, 4, 1, 3, 1, {{E_ClimbSpeed, 0.06f}, {E_Count, 0.0f}, {E_Count, 0.0f}}, {120, 0, 0}, "Updraft Master", "Climb speed +6% per rank."},  // Updraft Master
     {124, 1, 5, 1, 1, 1, {{E_GlideMs, 0.5f}, {E_Count, 0.0f}, {E_Count, 0.0f}}, {121, 122, 0}, "Eternal Current", "Glide 50% longer after a dive."},  // Eternal Current
     {125, 1, 5, 1, 2, 1, {{E_LevelSpeed, 0.1f}, {E_Count, 0.0f}, {E_Count, 0.0f}}, {122, 0, 0}, "Highway", "Level flight speed +10% per rank."},  // Highway
     {126, 1, 5, 1, 2, 1, {{E_BoostGlide, 0.2f}, {E_Count, 0.0f}, {E_Count, 0.0f}}, {122, 123, 0}, "Skybound", "Boosts keep 20% more of your glide speed, per rank."},  // Skybound
-    {127, 2, 1, 1, 3, 1, {{E_BoostAdd, 0.06f}, {E_Count, 0.0f}, {E_Count, 0.0f}}, {100, 0, 0}, "Iron Wings", "Boosts add 6% more speed per rank."},  // Iron Wings
-    {128, 2, 1, 1, 3, 1, {{E_StackInterval, -0.04f}, {E_Count, 0.0f}, {E_Count, 0.0f}}, {100, 0, 0}, "Quick Recovery", "Boost charges refill 4% faster per rank."},  // Quick Recovery
-    {129, 2, 2, 1, 3, 1, {{E_StackDiveInterval, -0.06f}, {E_Count, 0.0f}, {E_Count, 0.0f}}, {127, 0, 0}, "Diving Wings", "Boost charges refill 6% faster while diving, per rank."},  // Diving Wings
-    {130, 2, 2, 1, 3, 1, {{E_BoostFade, 0.05f}, {E_Count, 0.0f}, {E_Count, 0.0f}}, {127, 128, 0}, "Afterburn", "Boosts last 5% longer per rank."},  // Afterburn
+    {127, 2, 1, 1, 3, 1, {{E_BoostAdd, 0.01f}, {E_Count, 0.0f}, {E_Count, 0.0f}}, {100, 0, 0}, "Iron Wings", "Boosts add 1% more speed per rank."},  // Iron Wings
+    {128, 2, 1, 1, 3, 1, {{E_StackInterval, -0.01f}, {E_Count, 0.0f}, {E_Count, 0.0f}}, {100, 0, 0}, "Quick Recovery", "Boost charges refill 1% faster per rank."},  // Quick Recovery
+    {129, 2, 2, 1, 3, 1, {{E_StackDiveInterval, -0.02f}, {E_Count, 0.0f}, {E_Count, 0.0f}}, {127, 0, 0}, "Diving Wings", "Boost charges refill 2% faster while diving, per rank."},  // Diving Wings
+    {130, 2, 2, 1, 3, 1, {{E_BoostFade, 0.02f}, {E_Count, 0.0f}, {E_Count, 0.0f}}, {127, 128, 0}, "Afterburn", "Boosts last 2% longer per rank."},  // Afterburn
     {131, 2, 2, 1, 1, 1, {{E_BoostStacks, 1.0f}, {E_Count, 0.0f}, {E_Count, 0.0f}}, {128, 0, 0}, "Wing Reserve", "Hold 1 more boost charge."},  // Wing Reserve
-    {132, 2, 3, 1, 3, 1, {{E_BoostCarry, 0.1f}, {E_Count, 0.0f}, {E_Count, 0.0f}}, {129, 130, 0}, "Banked Momentum", "Keep 10% more of a boost after it ends, per rank."},  // Banked Momentum
-    {133, 2, 3, 1, 1, 1, {{E_BoostSpeed, 0.06f}, {E_Count, 0.0f}, {E_Count, 0.0f}}, {130, 131, 0}, "Overcharge", "Boost speed limit +6%."},  // Overcharge
-    {134, 2, 4, 1, 3, 1, {{E_BoostAdd, 0.06f}, {E_Count, 0.0f}, {E_Count, 0.0f}}, {132, 0, 0}, "Surge Cells", "Boosts add 6% more speed per rank."},  // Surge Cells
-    {135, 2, 4, 1, 3, 1, {{E_StackInterval, -0.04f}, {E_Count, 0.0f}, {E_Count, 0.0f}}, {132, 133, 0}, "Fast Cells", "Boost charges refill 4% faster per rank."},  // Fast Cells
+    {132, 2, 3, 1, 3, 1, {{E_BoostCarry, 0.06f}, {E_Count, 0.0f}, {E_Count, 0.0f}}, {129, 130, 0}, "Banked Momentum", "Keep 6% more of a boost after it ends, per rank."},  // Banked Momentum
+    {133, 2, 3, 1, 1, 1, {{E_BoostSpeed, 0.04f}, {E_Count, 0.0f}, {E_Count, 0.0f}}, {130, 131, 0}, "Overcharge", "Boost speed limit +4%."},  // Overcharge
+    {134, 2, 4, 1, 3, 1, {{E_BoostAdd, 0.05f}, {E_Count, 0.0f}, {E_Count, 0.0f}}, {132, 0, 0}, "Surge Cells", "Boosts add 5% more speed per rank."},  // Surge Cells
+    {135, 2, 4, 1, 3, 1, {{E_StackInterval, -0.03f}, {E_Count, 0.0f}, {E_Count, 0.0f}}, {132, 133, 0}, "Fast Cells", "Boost charges refill 3% faster per rank."},  // Fast Cells
     {136, 2, 4, 1, 1, 1, {{E_StartStacks, 1.0f}, {E_Count, 0.0f}, {E_Count, 0.0f}}, {133, 0, 0}, "Reserve Charge", "Start each flight with 1 more boost charge."},  // Reserve Charge
     {137, 2, 5, 1, 1, 1, {{E_BoostStacks, 1.0f}, {E_Count, 0.0f}, {E_Count, 0.0f}}, {134, 135, 0}, "Twin Vault", "Hold 1 more boost charge."},  // Twin Vault
     {138, 2, 5, 1, 2, 1, {{E_BoostSpeed, 0.06f}, {E_Count, 0.0f}, {E_Count, 0.0f}}, {135, 0, 0}, "Overdrive", "Boost speed limit +6% per rank."},  // Overdrive
     {139, 2, 5, 1, 2, 1, {{E_BoostFade, 0.1f}, {E_Count, 0.0f}, {E_Count, 0.0f}}, {135, 136, 0}, "Last Gasp", "Boosts last 10% longer per rank."},  // Last Gasp
     {140, 0, 3, 2, 1, 1, {{E_ClimbThreshold, 25.0f}, {E_Count, 0.0f}, {E_Count, 0.0f}}, {103, 118, 0}, "Still Air", "Climbing starts at 25 degrees instead of 15."},  // Still Air
     {141, 1, 3, 2, 1, 1, {{E_DiveThreshold, 25.0f}, {E_Count, 0.0f}, {E_Count, 0.0f}}, {116, 131, 0}, "Tucked Wings", "Diving starts at 25 degrees instead of 35."},  // Tucked Wings
-    {142, 2, 3, 2, 1, 1, {{E_ClimbDecel, 0.4f}, {E_Count, 0.0f}, {E_Count, 0.0f}}, {105, 129, 0}, "Rising Current", "Climbs keep 40% more of your speed."},  // Rising Current
+    {142, 2, 3, 2, 1, 1, {{E_ClimbDecel, 0.24f}, {E_Count, 0.0f}, {E_Count, 0.0f}}, {105, 129, 0}, "Rising Current", "Climbs keep 24% more of your speed."},  // Rising Current
     {143, 0, 5, 2, 2, 2, {{E_LevelSpeed, 0.04f}, {E_DiveSpeed, 0.04f}, {E_Count, 0.0f}}, {108, 123, 0}, "Skimmer", "Level and dive speed +4% per rank."},  // Skimmer
     {144, 1, 5, 2, 2, 2, {{E_BoostAdd, 0.06f}, {E_LevelSpeed, 0.03f}, {E_Count, 0.0f}}, {121, 136, 0}, "Windfall", "Boosts add 6% more speed and level speed +3%, per rank."},  // Windfall
     {145, 2, 5, 2, 2, 2, {{E_StackDiveInterval, -0.08f}, {E_DiveSpeed, 0.03f}, {E_Count, 0.0f}}, {110, 134, 0}, "Thunderhead", "Diving charges refill 8% faster and dive speed +3%, per rank."},  // Thunderhead
     {146, 0, 6, 3, 1, 2, {{E_DiveSpeed, 0.5f}, {E_DiveMs, -0.3f}, {E_Count, 0.0f}}, {111, 112, 113}, "Falcon's Stoop", "Dive speed +50% and dives start 30% faster."},  // Falcon's Stoop
     {147, 1, 6, 3, 1, 2, {{E_LevelSpeed, 0.4f}, {E_ClimbSpeed, 0.4f}, {E_Count, 0.0f}}, {124, 125, 126}, "Endless Horizon", "Level and climb speed +40%."},  // Endless Horizon
-    {148, 2, 6, 3, 1, 3, {{E_BoostStacks, 2.0f}, {E_BoostAdd, 0.25f}, {E_BoostSpeed, 0.08f}}, {137, 138, 139}, "Tempest Heart", "2 more boost charges, boosts add 25% more speed, boost speed limit +8%."},  // Tempest Heart
+    {148, 2, 6, 3, 1, 3, {{E_BoostStacks, 1.0f}, {E_BoostAdd, 0.25f}, {E_BoostSpeed, 0.08f}}, {137, 138, 139}, "Tempest Heart", "1 more boost charge, boosts add 25% more speed, boost speed limit +8%."},  // Tempest Heart
     {149, 0, 7, 4, 35, 1, {{E_SpeedAll, 0.01f}, {E_Count, 0.0f}, {E_Count, 0.0f}}, {146, 0, 0}, "Stoop Mastery", "All flight speeds +1% per rank."},  // Stoop Mastery
     {150, 1, 7, 4, 35, 1, {{E_SpeedAll, 0.01f}, {E_Count, 0.0f}, {E_Count, 0.0f}}, {147, 0, 0}, "Horizon Mastery", "All flight speeds +1% per rank."},  // Horizon Mastery
     {151, 2, 7, 4, 35, 1, {{E_SpeedAll, 0.01f}, {E_Count, 0.0f}, {E_Count, 0.0f}}, {148, 0, 0}, "Tempest Mastery", "All flight speeds +1% per rank."},  // Tempest Mastery
@@ -267,9 +267,11 @@ namespace
     struct TalentConfig
     {
         bool   enabled        = true;
-        uint32 maxPoints      = 140;    // lifetime cap: the core plus up to 139 ranks
-        float  baseYards      = 500.0f; // yards of flight for the first point
-        float  yardStep       = 0.04f;  // each point after the first needs 4% more yards than the one before
+        uint32 maxPoints      = 103;    // lifetime cap: the most ranks any legal build can hold (core 1 + 102)
+        float  baseYards      = 100.0f; // yards of flight for the first point
+        float  yardStep       = 1.00f;  // the opening step: point 1 needs 100% more yards than point 0
+        float  yardStepLate   = 0.10f;  // the step once the curve has soothed
+        uint32 yardSoothe     = 25;     // the step eases linearly from yardStep to yardStepLate over this many points
         uint32 maxPointsPerMinute = 4;  // rolling-window cap; 0 disables (an AFK orbit is free)
         uint32 flushMs        = 20000;  // how often a dirty progress map is written back
         float  diveAccrual    = 1.5f;   // yards count this much more while diving -- diving pays best
@@ -408,11 +410,16 @@ namespace
     double PointYards(uint32 index, const Talents& t)
     {
         // Slipstream (yard_step) shrinks the compounding step, never below a tenth of the config value.
-        const double step = static_cast<double>(g_talentCfg.yardStep) *
-                            std::max(0.1, static_cast<double>(t.eff[E_YardStep]));
+        const double mult = std::max(0.1, static_cast<double>(t.eff[E_YardStep]));
         double need = static_cast<double>(g_talentCfg.baseYards);
+        const double early = static_cast<double>(g_talentCfg.yardStep);
+        const double late = static_cast<double>(g_talentCfg.yardStepLate);
+        const double soothe = std::max(1.0, static_cast<double>(g_talentCfg.yardSoothe));
         for (uint32 i = 0; i < index; ++i)
-            need *= 1.0 + step;
+        {
+            const double k = std::max(0.0, 1.0 - i / soothe);   // 1 at the first point, 0 once soothed
+            need *= 1.0 + (late + (early - late) * k) * mult;
+        }
         return need;
     }
 
@@ -2103,11 +2110,13 @@ public:
         TalentConfig tc;
         tc.enabled        = sConfigMgr->GetOption<bool>("Talents.Enable", true);
         // The earning curve: the first point costs Talents.BaseYards, each one after it costs
-        // Talents.YardStep more than the point before (0.04 = 4%, compounding).
-        tc.baseYards      = sConfigMgr->GetOption<float>("Talents.BaseYards", 500.0f);
-        tc.yardStep       = sConfigMgr->GetOption<float>("Talents.YardStep", 0.04f);
+        // Talents.YardStep more than the point before (1.00 = 100%, compounding), easing to Talents.YardStepLate over Talents.YardSoothe points.
+        tc.baseYards      = sConfigMgr->GetOption<float>("Talents.BaseYards", 100.0f);
+        tc.yardStep       = sConfigMgr->GetOption<float>("Talents.YardStep", 1.00f);
+        tc.yardStepLate   = sConfigMgr->GetOption<float>("Talents.YardStepLate", 0.10f);
+        tc.yardSoothe     = sConfigMgr->GetOption<uint32>("Talents.YardSoothe", 25);
         // The circular tree has 52 nodes and a 140-point lifetime cap.
-        tc.maxPoints      = sConfigMgr->GetOption<uint32>("Talents.MaxPoints", 140);
+        tc.maxPoints      = sConfigMgr->GetOption<uint32>("Talents.MaxPoints", 103);
         tc.maxPointsPerMinute = sConfigMgr->GetOption<uint32>("Talents.MaxPointsPerMinute", 4);
         tc.respecCost     = sConfigMgr->GetOption<uint32>("Talents.RespecCost", 0);
         tc.flushMs        = sConfigMgr->GetOption<uint32>("Talents.FlushMs", 20000);
@@ -2135,6 +2144,7 @@ public:
         if (tc.baseYards < 1.0f) tc.baseYards = 1.0f;
         // A negative or huge step would make the curve non-monotonic or overflow the double.
         tc.yardStep = std::max(0.0f, std::min(tc.yardStep, 10.0f));
+        tc.yardStepLate = std::max(0.0f, std::min(tc.yardStepLate, 10.0f));
         if (!tc.maxPoints) tc.maxPoints = 140;
         tc.maxPoints = std::min(tc.maxPoints, 255u); // 140 is the shipped default; this only guards a typo
         if (tc.teleportYards < 50.0f) tc.teleportYards = 50.0f;
