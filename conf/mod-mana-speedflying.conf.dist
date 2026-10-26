@@ -27,19 +27,19 @@ ManaSpeedFlying.Enable = 1
 #
 #    ManaSpeedFlying.ClimbSpeed
 #        Description: Flight speed while climbing, as a multiplier of base run speed.
-#                     2.0 = 200%. This is the slowest of the three.
-#        Default:     2.0
+#                     2.2 = 220%. This is the slowest of the three.
+#        Default:     2.2
 #
 
-ManaSpeedFlying.ClimbSpeed = 2.0
+ManaSpeedFlying.ClimbSpeed = 2.2
 
 #
 #    ManaSpeedFlying.LevelSpeed
-#        Description: Flight speed while level (or hovering). 2.8 = 280%.
-#        Default:     2.8
+#        Description: Flight speed while level (or hovering). 3.2 = 320%.
+#        Default:     3.2
 #
 
-ManaSpeedFlying.LevelSpeed = 2.8
+ManaSpeedFlying.LevelSpeed = 3.2
 
 #
 #    ManaSpeedFlying.DiveSpeed

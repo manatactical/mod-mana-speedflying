@@ -229,8 +229,8 @@ namespace
     struct Config
     {
         bool   enabled      = true;
-        float  climbSpeed   = 2.0f;  // 200% of base run speed
-        float  levelSpeed   = 2.8f;  // 280%
+        float  climbSpeed   = 2.2f;  // 220% of base run speed
+        float  levelSpeed   = 3.2f;  // 320%
         float  diveSpeed    = 6.0f;  // 600%
         uint32 blendMs      = 5500;  // default blend, proportional to the span it must cover
         uint32 diveMs       = 4000;  // accelerate into a dive
@@ -570,9 +570,12 @@ namespace
         p.dirty = false;
     }
 
+    constexpr uint32 kGroundStackSlowdown = 3; // mounted-on-ground stack charge runs this many times slower
+
     struct PlayerState
     {
         bool   eligible  = false;         // client said the mount is AdvFly-capable
+        bool   advFly    = false;         // last link message said AdvFly mount; survives landing, unlike eligible
         bool   fromDive  = false;         // the running climb was entered straight out of a dive
         Motion motion    = Motion::Level; // state the current transition is heading to
         float  start     = 0.0f;          // rate when the current transition began
@@ -1452,11 +1455,13 @@ public:
                 {
                     it->second.eligible  = false;
                     it->second.announced = false;
+                    it->second.advFly    = false;
                 }
                 return;
             }
 
             PlayerState& st = g_states[guid];
+            st.advFly = true;
 
             const uint32 now = getMSTime();
             // A client sends at most one message per ~200 ms; anything faster is a flood. Boost
@@ -1668,8 +1673,24 @@ public:
             st.duration      = 0;
             st.fromDive      = false;
             st.sendAccum     = 0;
-            st.stackAccum    = 0; // grounded earns nothing: do not resume half a stack on take-off
-            st.stackInterval = 0;
+            // A linked mount still on the ground charges, GroundStackSlowdown times slower than flight.
+            // The link is trusted only while fresh, same timeout as flight.
+            const bool groundCharge = eff.enabled && !flying && st.advFly && player->IsMounted() &&
+                                      eff.stackMs && st.stacks < eff.boostStacks &&
+                                      (!eff.timeoutMs || getMSTime() - st.lastMsgMs <= eff.timeoutMs);
+            st.stackInterval = eff.stackMs * kGroundStackSlowdown;
+            if (groundCharge)
+            {
+                st.stackAccum += p_time;
+                if (st.stackAccum >= eff.stackMs * kGroundStackSlowdown)
+                {
+                    st.stackAccum = 0;
+                    ++st.stacks;
+                    SendSpeedAnnounce(player, eff, st.stacks, st.stackAccum, st.stackInterval);
+                }
+            }
+            else
+                st.stackAccum = 0; // not charging: do not resume half a stack on take-off
             st.boostStart    = 0.0f;
             st.boostOffset   = 0.0f;
             st.boostElapsed  = 0;
@@ -1929,8 +1950,8 @@ public:
     {
         Config cfg;
         cfg.enabled      = sConfigMgr->GetOption<bool>("ManaSpeedFlying.Enable", true);
-        cfg.climbSpeed   = sConfigMgr->GetOption<float>("ManaSpeedFlying.ClimbSpeed", 2.0f);
-        cfg.levelSpeed   = sConfigMgr->GetOption<float>("ManaSpeedFlying.LevelSpeed", 2.8f);
+        cfg.climbSpeed   = sConfigMgr->GetOption<float>("ManaSpeedFlying.ClimbSpeed", 2.2f);
+        cfg.levelSpeed   = sConfigMgr->GetOption<float>("ManaSpeedFlying.LevelSpeed", 3.2f);
         cfg.diveSpeed    = sConfigMgr->GetOption<float>("ManaSpeedFlying.DiveSpeed", 6.0f);
         cfg.blendMs      = sConfigMgr->GetOption<uint32>("ManaSpeedFlying.BlendMs", 5500);
         cfg.diveMs       = sConfigMgr->GetOption<uint32>("ManaSpeedFlying.DiveMs", 4000);

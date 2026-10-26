@@ -5,8 +5,8 @@ companion to the client's **wxl-mana-speedflying** module:
 
 | state      | speed |
 |------------|-------|
-| climbing   | 200%  |
-| leveling   | 280%  |
+| climbing   | 220%  |
+| leveling   | 320%  |
 | diving     | 600%  |
 
 `wxl-mana-speedflying` already animates the mount as climbing / gliding / diving, so the two agree: wings
@@ -255,7 +255,7 @@ comments. Defaults:
 ```ini
 ManaSpeedFlying.Enable       = 1
 ManaSpeedFlying.ClimbSpeed   = 2.0    ; 200%
-ManaSpeedFlying.LevelSpeed   = 2.8    ; 280%
+ManaSpeedFlying.LevelSpeed   = 3.2    ; 320%
 ManaSpeedFlying.DiveSpeed    = 6.0    ; 600%
 ManaSpeedFlying.BlendMs      = 5500   ; default blend, proportional to the span it covers
 ManaSpeedFlying.DiveMs       = 4000   ; accelerate into a dive
