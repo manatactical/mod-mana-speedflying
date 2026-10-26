@@ -79,72 +79,36 @@ changing `ManaSpeedFlying.DiveSpeed` on the server is enough -- no matching edit
 
 ## The talent protocol -- `WXLTT`
 
-The tree rides a **second prefix**, so the `WXLMS` link parser is untouched and an older client keeps
-working against this server. Append only; never reorder or renumber a field.
+Client to server (an addon whisper, prefix `WXLTT`, a tab after the prefix):
 
-```
-client -> server:  WXLTT<TAB>W<TAB><talentId>   learn one rank
-                   WXLTT<TAB>B<TAB><id>:<target>[,<id>:<target>,...]   learn up to an absolute rank each
-                   WXLTT<TAB>R<TAB><b1|b2|b3>      refund one branch
-                   WXLTT<TAB>R<TAB>A              refund the whole tree
-                   WXLTT<TAB>Q                  request the current tree
-	server -> client:  WXLTT<TAB>T<TAB><points>,<spent>,<unspent>[,<id>:<rank>,...][,P<permille>,N<yards>]
-                   WXLTT<TAB>P<TAB><permille>,<yards>   the partial point alone, for the progress bar
-                   WXLTT<TAB>F<TAB><reason>     a refusal, echoed for the panel
-```
+    WXLTT<TAB>W<TAB><talentId>                     learn one rank
+    WXLTT<TAB>B<TAB><id>:<target>[,<id>:<target>]  learn up to an absolute rank each (a draft)
+    WXLTT<TAB>R<TAB><1|2|3|A>                      refund a tree (1 dive, 2 glide, 3 wings) or everything
+    WXLTT<TAB>Q                                    request the tree
 
-The tally's trailing `id:rank` pairs are a list, so a new talent needs no protocol change, and the
-`F` reply means a refusal is always answered rather than silently dropped -- that is what stops the
-panel drifting out of step with the server. A tally is sent after every `W`, `B`, `R` and `Q`.
+`R` also accepts `b1`..`b3` for an older build. Every `B` is absolute, so a resent batch is the same request
+and a dropped reply cannot double-spend. The client sends at most 12 pairs per `B`.
 
-`B` is the batch: a whole Confirm in one message, one `<id>:<target>` pair per staged talent, `target`
-being the **absolute** rank wanted rather than a delta. Absolute is what makes a resend idempotent --
-the server climbs each entry to its target and stops, so a duplicated message cannot double-spend. The
-list is applied as a **set, not a script**: entries are retried in repeated passes, each pass ranking
-every entry whose gates are already met, until a pass ranks nothing. The order the pairs arrive in
-therefore carries no meaning -- a draft that ranks a bridge and a tier-3 node that bridge opens lands
-whichever way round the two are listed. The first gate still refusing once the passes stall is the
-refusal (`F`) the panel shows; one tally answers the whole batch. `W` is kept for an older client and for a
-single click.
+Server to client, one whisper per body (the addon cap is 255 bytes):
 
-The optional trailing `,P<permille>,N<yards>` is the partial point as thousandths and the yards the
-next point still needs, for the client's progress bar. It is appended **after** the rank pairs on
-purpose: a client parses a pair it cannot read as the end of the list, so an older panel keeps every
-rank and only loses the bar.
+    T:<points>,<spent>,<unspent>,<n>,<ranks>,P<permille>,N<yards>   the whole tree, REPLACES the client's table
+    P:<permille>,<yards>                                           the partial point alone, for the progress bar
+    F:<reason>                                                     a refusal
 
-The bar moves on its own, so it gets its own body rather than a whole tally: `P` carries those two
-fields and nothing else, roughly every 500 ms while flight is banking yards and the permille changes.
-Answering that with a full tally would drag up to 17 `id:rank` pairs -- several hundred bytes -- along
-with two numbers, which is the bulk of what this module used to send. A tally now only goes out when a
-rank or a point count can have moved.
+`<ranks>` is `<n>` characters, one per talent in table order: `0`-`9`, then `a`-`z` (a linked talent reaches
+35). The whole tree fits one message (about 90 bytes), and it must be one message: the client's listener keeps
+only the last `T`/`F` body it hears, so a split tally would lose every part but the last. A client whose
+table has a different `<n>` ignores the ranks rather than mis-assigning them. A tally is sent after every
+`W`, `B`, `R` and `Q`. The bar moves on its own, so it rides a `P:` body about twice a second while flight
+accrues yards.
 
-Every write validates in this order, inside one lock: config enabled, the player is on a mount, the
-character has a progress row, the talent id is known, `rank + 1 <= maxRank`, the tier's pick is free
-(skipped for a bridge), the bridge gate (a bridge needs a branch it touches to be complete), the tier
-row gate -- tiers 2 and 3 need the tier above full, or tier 3 a touching bridge, and tier 4 always needs
-its own tier 3 -- the lifetime
-cap, and only then the derived unspent count. A forged learn message
-therefore costs exactly what a real one would, and a forged bridge costs a point like any other rank.
+Refusal reasons (`F:`): `locked` (no parent is at full rank), `cap-taken` (another big talent holds a rank),
+`max-rank`, `no-points`, `unknown` (an id this build does not know), `no-progress`, `not-mounted`,
+`disabled`, `bad-arg`, `bad-branch`, `no-money`. A refusal is always answered, so the panel cannot drift.
 
-A branch's tier 3 is gated by the bridge touching it, so a batch may rank a bridge and spend in the tier
-that bridge opens in either order: the batch is applied in dependency passes (see `B` above), not left to
-right, so no client-side sorting is needed and none is done.
-
-A tier opens top down inside its branch: tiers 2 and 3 need the tier above them full in *every* talent
-it holds, or tier 3 reached through a touching bridge, so filling a branch costs `3+3+3+1 = 10` points.
-Tier 4 needs its own branch's tier 3 full, never a bridge. Tier 2 is a **pick of two** -- the server
-refuses the rival of a ranked talent with `tier-taken`, so switching halves needs a respec.
-
-D5 **Aftershock** is the one client→server message that is not the tree itself: it reuses the
-`WXLMS` link's state byte with a new letter `X`, sent when the boost key comes up while a boost is
-still live. The server checks the rank itself, so an `X` from a character without the talent does
-nothing, and matches on count exactly like a real one. An older server that does not know `X` falls
-back to its `default:` branch and treats it as a plain level state -- degraded, not broken.
-
-Only client-side talents need a wire field. 14 (Smoothed Plumage, now a tier-1 talent) is feel-only,
-so its ranks ride the tally and the client scales its own dive shake and mote density; every other
-talent is applied entirely server-side and needs nothing new, which is what keeps the protocol
-append-only instead of adding a field per talent.
+Rank changes are validated on the server in this order: max rank, one big talent, a parent at full rank,
+then unspent points. A batch applies in dependency passes, so a draft may rank a bridge and the talent it
+opens in any order; a refusal stops only what cannot yet be bought.
 
 ## Requirements
 
@@ -158,94 +122,106 @@ worldserver. The build copies `mod-mana-speedflying.conf.dist` into `configs/`; 
 `mod-mana-speedflying.conf` and edit the values there. The module is picked up automatically (no
 `CMakeLists.txt` is needed on current AzerothCore).
 
-## The talent tree
+## The circular tree (Wind-Sworn)
 
-Each character earns **points** by flying on an AdvFly mount, and spends them on 17 talents in three
-branches of four tiers. The server owns the tree: the client only renders it. A dive counts
-`Talents.DiveAccrual` (1.5) times its distance, earning is capped per rolling minute by
-`Talents.MaxPointsPerMinute` (`0` removes the cap; a point leaves the window 60 s after it was paid, so
-a steady flight keeps earning at the configured rate), and a tick covering more than
-`Talents.TeleportYards` (200) is treated as a teleport and earns nothing. **Dive is the entry branch and
-is always open**; a branch's tiers 1 to 3 are buyable without a bridge, and only its tier-4 capstone opens
-when the 1-point bridge beside it is ranked. **13 points is the lifetime cap** (`Talents.MaxPoints`): a
-full branch costs 10 (3+3+3+1), each bridge costs 1, so 13 is a whole branch, both bridges and the
-first point they unlock in the branch next door.
+The talent tree is a circle. Windborn (id 100) is the centre and the only way in. Three trees hang off it,
+each five rings deep: **Dive** (top), **Glide** (lower right) and **Wings** (lower left). Ring 6 holds three
+big talents, one of which a character may ever take. Beyond ring 6 each big talent has a linked talent that
+gives up to 35 ranks of +1% flight speed. The client draws the same layout from the same table.
 
-The yard cost of each point rises: **`Talents.BaseYards` (500) for the first, then +`Talents.YardStep`
-(100%, the default) for every point after it** -- the step *doubles*: 500, 1000, 2000, 4000 ... yd,
-about 8.2M yards for all 13. Slipstream
-scales the *step* of the next point rather than the rate yards are banked at, so a rank in it can only
-ever shorten the tree. The panel's bar shows the 13-step progress and the yards still owed.
+**Unlock rule.** A node can take a rank once **any** of its parents is at **full rank**. A big talent has the three ring-5
+talents of its tree as parents. Windborn has no parent. There are no tiers, no picks of two and no branch gates.
 
-| id | branch | tier | name | ranks | effect (percentage of the key above) |
-|----|--------|------|------|-------|---------------------------------------|
-| 1 | Dive | 1 | Steep Descent | 3 | `DiveMs` -8% per rank |
-| 3 | Dive | 2 | Terminal Velocity | 3 | `DiveSpeed` +6% per rank, capped by `SpeedCapPct` |
-| 2 | Dive | 2 | Held Breath | 3 | `ClimbDecelMs` +15% per rank |
-| 4 | Dive | 3 | Shallow Pull | 3 | a pull-out 15 degrees shallower per rank keeps its whole glide |
-| 5 | Dive | 4 | Aftershock | 1 | releasing the boost key into a dive commits the burst at once |
-| 6 | Glide | 1 | Long Glide | 3 | `GlideMs` +12% per rank |
-| 7 | Glide | 2 | Slipstream | 3 | the next point's `YardStep` -12% per rank |
-| 8 | Glide | 2 | Banked Momentum | 3 | boost carry +10 points of `BoostCarryPct` per rank |
-| 10 | Glide | 3 | Skyward Path | 3 | `LevelSpeed` +10% per rank of glide elevation |
-| 9 | Glide | 4 | Twin Vault | 1 | `BoostMaxStacks` +1: a **fourth** boost stack |
-| 14 | Wings | 1 | Smoothed Plumage | 3 | client-side only: dive shake, speed-mote density |
-| 12 | Wings | 2 | Steady Wings | 3 | `StackIntervalMs` -8% per rank |
-| 11 | Wings | 2 | Diving Wings | 3 | `StackDiveIntervalMs` -10% per rank |
-| 13 | Wings | 3 | Iron Wings | 3 | `BoostAdd` +8% per rank |
-| 15 | Wings | 4 | Rising Current | 1 | `ClimbDecelMs` +40%: a climb keeps its entered speed |
-| 16 | Dive | 3 | Still Air | 1 | climb threshold 15° -> 25°, **and opens the Glide branch** |
-| 17 | Glide | 3 | Tucked Wings | 1 | dive threshold 35° -> 45°, **and opens the Wings branch** |
+**One big talent.** Only one ring-6 node may hold a rank. The server refuses a second one with `cap-taken`.
+The linked talent opens only on its own big talent (`locked` otherwise).
 
-- **Branch gate (`tree-locked`) -> tier 3 only.** Every branch's **tiers 1 and 2 are free to buy** --
-  3 ranks in tier 1 and a pick of two in tier 2, top-down with no bridge, so a branch is playable to 6
-  points. A branch's **tier 3** opens on its own tiers 1-2 being full **or** on the 1-point bridge that
-  touches it. A bridge touches two branches -- the one it sits in and the one it points at -- so 16 Still
-  Air (Dive's tier 3, opens Glide) opens tier 3 of **both** Dive and Glide, and 17 Tucked Wings does the
-  same for Glide and Wings.
-- **Tier 4 is never handed out by a bridge.** The capstone needs its **own branch's tier 3 full**, always.
-  A bridge is a shortcut into tier 3 and stops there, so playing the row is what earns the capstone.
-- **Row gate.** Tiers 2 and 3 are top-down: a row opens on the row above being full, and tier 3 may
-  instead be reached through a bridge that touches the branch. Tier 4 needs its own tier 3 full, never a
-  bridge.
-- **Bridge unlock.** A bridge is a **tier-3** talent in its own branch: it needs that branch's tiers 1
-  and 2 full, that branch's tier-4 capstone ranked, **or the branch it opens being complete** -- a bridge is
-  wedged between two branches, and either one being finished opens it. That makes a finished middle branch
-  (Glide) a hub: it opens the bridge on both its sides, so play may set off toward Dive or toward Wings. A
-  bridge does not count toward its own
-  branch's tier-3 completion and cannot be refused as its rival, so Shallow Pull and Still Air can be
-  ranked together.
-- **Tier gate.** Tier 1 is free to buy inside any branch. Tiers 2 and 3 (and a bridge, which rides its
-  own branch's tier-3 row) open only once the tier above them is at full rank (in every talent it holds) --
-  or, for tier 3, through a touching bridge. Tier 4 needs its own tier 3 full. A branch is `3+3+3+1 = 10`
-  points.
-- **Tier 2 is a pick.** Of the two talents in a tier-2 group only one may hold a rank; the server
-  refuses the rival with `tier-taken`. Switch halves by resetting the branch (`Reset`, or right-click a
-  talent). A bridge is exempt -- it never competes with its branch's own pick, so Shallow Pull and Still
-  Air can be ranked together.
-- **A refund re-opens nothing.** Refunding a bridge refunds its rank only: points already spent in the
-  branch it opened keep their rank and merely stop accepting new ones until the bridge is bought again.
-  That is what keeps a respec from destroying a tree in one click.
-- **Both bridges are client-side.** They carry no `E_*` effect: the angle they widen is a client-side
-  threshold, so the ranks ride the tally like 14 Smoothed Plumage and the effect is applied by
-  `wxl-mana-speedflying`. The server-side consequence is exactly one row each -- the rank, not a speed.
-- **No effect is ever applied twice.** D2 and W15 both move `ClimbDecelMs`; their ranks are summed
-  into one multiplier, not compounded. D3 is the only talent that raises a state speed, and the boost
-  ceiling is derived from the fastest state -- so `SpeedCapPct` is applied to the base states *before*
-  that derivation, or the clamp would be silently undone.
-- **Per-player, not global.** The effects live in a per-character copy of the config (`Effective cfg`),
-  rebuilt on login, on every rank bought and on every config reload; the base keys are never mutated.
-  Idle players are not walking around with the server's global speeds.
-- **Persistence.** `character_speedflying` holds lifetime points and the sub-point yard fraction;
-  `character_speedflying_talents` holds one row per unrefunded rank. Unspent points are derived
-  (`points - SUM(rank)`) and never stored, so the two cannot drift. Dirty rows are flushed on a
-  `Talents.FlushMs` (20 s) timer, on logout and on world shutdown. Respec (`WXLTT\tR\t<b1|b2|b3|A>`) is
-  free by default and
-  takes the `Talents.RespecCost` if set; it refuses rather than half-applies when the money is missing.
-  Deleting a character deletes both of its rows, so a recycled guid cannot inherit a tree.
-Points are keyed on the character's low guid (`characters.guid`, i.e. `GetGUID().GetCounter()`), and the
-module cannot add a prepared statement -- the `CharacterDatabaseStatements` enum lives in the core -- so
-the queries interpolate integers only, never a string.
+**Bridges.** Still Air (140), Tucked Wings (141) and Rising Current (142) sit on ring 3. Skimmer (143),
+Windfall (144) and Thunderhead (145) sit on ring 5. Each one links the two neighbouring trees. Still Air and
+Tucked Wings are the two angle buffs:
+Still Air raises the climb threshold from 15 to 25 degrees, and Tucked Wings lowers the dive threshold from
+35 to 25 degrees, so a dive starts sooner. Both are read by the client from the tally.
+
+**Cost and cap.** Each rank costs one point. `Talents.MaxPoints` is 140 by default: the core plus at most 139
+ranks. Points cost `Talents.BaseYards` (500) yards for the first, and each one after it needs
+`Talents.YardStep` (0.04) more yards than the one before, compounding.
+
+**Respec.** `R1`, `R2`, `R3` clear the ordinary and linked talents of the dive, glide or wings tree. Bridges,
+the core and the big talents stay. `RA` clears everything. A refund never re-opens a node by itself: points
+already spent below a refunded node keep their rank.
+
+**Migration.** The old 17-id tree (ids 1..17) is retired. The new ids are 100..151 and the two sets do not
+overlap. A stored row with an old id matches nothing, so the module skips it on load and its points come
+back as unspent on the first tally. Nothing is deleted from `character_speedflying_talents`, so the change is
+reversible. Every character starts the new tree with its full earned points unspent.
+
+**Config.** `Talents.MaxPointsPerMinute` stays at 4, but raise it for a 140-point tree or the burst rate
+dominates the earning. See `conf/mod-mana-speedflying.conf.dist`.
+
+**The 52 nodes** (from `talents.json`; the same table is `kTalents` on the server and in the client):
+
+| id | ring | tree | kind | name | ranks | parents | effect |
+|---|---|---|---|---|---|---|---|
+| 100 | core | all | core | Windborn | 1 | - | All flight speeds +20%. |
+| 101 | 1 | dive | node | Steep Descent | 3 | 100 | Accelerate into a dive 8% faster per rank. |
+| 102 | 1 | dive | node | Held Breath | 3 | 100 | Hold dive speed 15% longer per rank when pulling up into a climb. |
+| 103 | 2 | dive | node | Terminal Velocity | 3 | 101 | Reach 6% more dive speed per rank. |
+| 104 | 2 | dive | node | Sharp Banking | 3 | 101, 102 | Speed changes blend 8% faster per rank. |
+| 105 | 2 | dive | node | Dive Yield | 3 | 102 | Earn 10% more talent progress per rank while diving. |
+| 106 | 3 | dive | node | Shallow Pull | 3 | 103, 104 | A pull-out 15 degrees shallower per rank keeps its whole glide. |
+| 107 | 3 | dive | node | Aftershock | 1 | 104, 105 | Releasing the boost key into a dive commits the burst at once. |
+| 108 | 4 | dive | node | Gravity Well | 3 | 106, 140 | Reach 5% more dive speed per rank. |
+| 109 | 4 | dive | node | Rebound | 3 | 106, 107 | Fold 8 more points of a boost into the glide per rank. |
+| 110 | 4 | dive | node | Dive Bomb | 2 | 107, 142 | A boost during a dive adds 20% more speed per rank. |
+| 111 | 5 | dive | node | Meteor | 1 | 108, 109 | Accelerate into a dive 35% faster. |
+| 112 | 5 | dive | node | Hammerfall | 2 | 109, 108 | Reach 10% more dive speed per rank. |
+| 113 | 5 | dive | node | Redline | 2 | 110, 109 | Raise the speed cap by 200 points per rank. |
+| 114 | 1 | glide | node | Long Glide | 3 | 100 | Glide 12% longer per rank out of a dive. |
+| 115 | 1 | glide | node | Updraft | 3 | 100 | Climb 6% faster per rank. |
+| 116 | 2 | glide | node | Skyward Path | 3 | 114 | Fly level 5% faster per rank. |
+| 117 | 2 | glide | node | Slipstream | 3 | 114, 115 | Shorten the step to the next point by 12% per rank. |
+| 118 | 2 | glide | node | Hover Poise | 2 | 115 | Leave a hover 30% faster per rank. |
+| 119 | 3 | glide | node | Long Haul | 3 | 116, 117 | Earn 8% more talent progress per rank while level or climbing. |
+| 120 | 3 | glide | node | Glide Anchor | 1 | 117, 118 | A boost keeps 15 more points of the ordinary glide. |
+| 121 | 4 | glide | node | Jetstream | 3 | 119, 141 | Fly level 6% faster per rank. |
+| 122 | 4 | glide | node | Draft | 3 | 119, 120 | Speed changes blend 6% faster per rank. |
+| 123 | 4 | glide | node | Updraft Master | 3 | 120, 140 | Climb 8% faster per rank. |
+| 124 | 5 | glide | node | Eternal Current | 1 | 121, 122 | Glide 50% longer out of a dive. |
+| 125 | 5 | glide | node | Highway | 2 | 122, 121 | Fly level 10% faster per rank. |
+| 126 | 5 | glide | node | Skybound | 2 | 123, 122 | A boost keeps 20 more points of the ordinary glide per rank. |
+| 127 | 1 | wings | node | Iron Wings | 3 | 100 | Each boost adds 8% more speed per rank. |
+| 128 | 1 | wings | node | Quick Recovery | 3 | 100 | Boost stacks recharge 8% faster per rank. |
+| 129 | 2 | wings | node | Diving Wings | 3 | 127 | Boost stacks recharge 10% faster per rank while diving. |
+| 130 | 2 | wings | node | Afterburn | 3 | 127, 128 | A boost's speed lasts 10% longer per rank. |
+| 131 | 2 | wings | node | Wing Reserve | 1 | 128 | Hold one more boost stack. |
+| 132 | 3 | wings | node | Banked Momentum | 3 | 129, 130 | Fold 10 more points of a boost into the glide per rank. |
+| 133 | 3 | wings | node | Overcharge | 1 | 130, 131 | Raise the boost speed ceiling 10%. |
+| 134 | 4 | wings | node | Surge Cells | 3 | 132, 142 | Each boost adds 8% more speed per rank. |
+| 135 | 4 | wings | node | Fast Cells | 3 | 132, 133 | Boost stacks recharge 8% faster per rank. |
+| 136 | 4 | wings | node | Reserve Charge | 1 | 133, 141 | Start every flight with one more boost stack. |
+| 137 | 5 | wings | node | Twin Vault | 1 | 134, 135 | Hold one more boost stack. |
+| 138 | 5 | wings | node | Overdrive | 2 | 135, 134 | Raise the boost speed ceiling 12% per rank. |
+| 139 | 5 | wings | node | Last Gasp | 2 | 136, 135 | A boost's speed lasts 25% longer per rank. |
+| 140 | 3 | dive/glide | bridge | Still Air | 1 | 103, 118 | A glide may be 25 degrees steep before it reads as a climb. |
+| 141 | 3 | glide/wings | bridge | Tucked Wings | 1 | 116, 131 | A dive starts at 25 degrees instead of 35. |
+| 142 | 3 | wings/dive | bridge | Rising Current | 1 | 105, 129 | A climb keeps 40% more of its entered speed. |
+| 143 | 5 | dive/glide | bridge | Skimmer | 2 | 108, 123 | Level and dive speed 4% higher per rank. |
+| 144 | 5 | glide/wings | bridge | Windfall | 2 | 121, 136 | Boosts add 10% more speed and level flight 3% per rank. |
+| 145 | 5 | wings/dive | bridge | Thunderhead | 2 | 110, 134 | Diving stacks recharge 15% faster and dive speed rises 3% per rank. |
+| 146 | 6 (big) | dive | cap | Falcon's Stoop | 1 | 112, 111 | Dive speed +40% and the dive ramp is halved. |
+| 147 | 6 (big) | glide | cap | Endless Horizon | 1 | 125, 124 | Level and climb speed +30%. |
+| 148 | 6 (big) | wings | cap | Tempest Heart | 1 | 138, 137 | Two more boost stacks, stacks recharge 25% faster, boosts add 40% more. |
+| 149 | 7 (linked) | dive | linked | Stoop Mastery | 35 | 146 | All flight speeds +1% per rank. |
+| 150 | 7 (linked) | glide | linked | Horizon Mastery | 35 | 147 | All flight speeds +1% per rank. |
+| 151 | 7 (linked) | wings | linked | Tempest Mastery | 35 | 148 | All flight speeds +1% per rank. |
+
+**Persistence.** `character_speedflying` holds lifetime points and the sub-point yard fraction;
+`character_speedflying_talents` holds one row per ranked talent. Unspent points are derived
+(`points - SUM(rank)`) and never stored, so the two cannot drift. Dirty rows are flushed on a
+`Talents.FlushMs` (20 s) timer, on logout and on world shutdown. Respec is free by default and takes
+`Talents.RespecCost` if set. It refuses rather than half-applies when the money is missing. Deleting a
+character deletes both of its rows, so a recycled guid cannot inherit a tree. Points are keyed on the
+character's low guid (`characters.guid`, i.e. `GetGUID().GetCounter()`), and the queries interpolate
+integers only, never a string.
 
 ## Configuration
 
