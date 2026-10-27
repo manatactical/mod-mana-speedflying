@@ -478,11 +478,11 @@ namespace
     {
         // Every eff[] is already 1 + the summed ranks, so each line is one multiplier, applied once.
         // Durations are floored at a tenth so a stack of cuts cannot reach zero.
-        // Bonuses add to the base percent (+6% on 200% is 206%): speed_all and the per-state key are summed, not multiplied.
+        // Bonuses add to the base percent (+6% on 200% is 206%, not 212%): speed_all and the per-state key are summed, then added as points.
         const float all = t.eff[E_SpeedAll] - 1.0f;
-        c.climbSpeed *= 1.0f + all + (t.eff[E_ClimbSpeed] - 1.0f);
-        c.levelSpeed *= 1.0f + all + (t.eff[E_LevelSpeed] - 1.0f);
-        c.diveSpeed  *= 1.0f + all + (t.eff[E_DiveSpeed] - 1.0f);
+        c.climbSpeed += all + (t.eff[E_ClimbSpeed] - 1.0f);
+        c.levelSpeed += all + (t.eff[E_LevelSpeed] - 1.0f);
+        c.diveSpeed += all + (t.eff[E_DiveSpeed] - 1.0f);
         c.diveMs      = static_cast<uint32>(static_cast<float>(c.diveMs) * std::max(0.1f, t.eff[E_DiveMs]));
         c.glideMs     = static_cast<uint32>(static_cast<float>(c.glideMs) * t.eff[E_GlideMs]);
         c.climbDecelMs = static_cast<uint32>(static_cast<float>(c.climbDecelMs) * t.eff[E_ClimbDecel]);
@@ -490,9 +490,9 @@ namespace
         c.hoverMs     = static_cast<uint32>(static_cast<float>(c.hoverMs) * std::max(0.1f, t.eff[E_HoverMs]));
         // Boost add and ceiling take the all-speed bonus too, or a boost (a flat add under a flat ceiling) would
         // swallow every state-speed talent and leave only the Wings tree worth buying.
-        c.boostAdd   *= 1.0f + all + (t.eff[E_BoostAdd] - 1.0f);
+        c.boostAdd += all + (t.eff[E_BoostAdd] - 1.0f);
         c.boostAddDive = t.eff[E_BoostAddDive];
-        c.boostSpeed *= 1.0f + all + (t.eff[E_BoostSpeed] - 1.0f);
+        c.boostSpeed += all + (t.eff[E_BoostSpeed] - 1.0f);
         c.boostFadeMs = static_cast<uint32>(static_cast<float>(c.boostFadeMs) * t.eff[E_BoostFade]);
         c.boostCarryPct = std::min(1.0f, c.boostCarryPct + (t.eff[E_BoostCarry] - 1.0f));
         c.boostGlidePct = std::min(1.0f, c.boostGlidePct + (t.eff[E_BoostGlide] - 1.0f));
