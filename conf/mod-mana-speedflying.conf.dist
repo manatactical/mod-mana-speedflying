@@ -369,6 +369,6 @@ ManaSpeedFlying.SpeedCapPct = 1600.0
 # up to 35 ranks of +1% flight speed) opens only on that big talent.
 #
 # The talents are applied per player and never change the values above. The two angle bridges are
-# buffs: Still Air raises the climb threshold to 25 degrees, Tucked Wings lowers the dive threshold to
+# buffs: Still Air raises the climb threshold to 25 degrees, Tucked Wings lowers the dive threshold (75 degrees) to
 # 25 degrees (the client reads both from the tally).
 #

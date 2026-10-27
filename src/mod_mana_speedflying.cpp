@@ -190,7 +190,7 @@ namespace
     {138, 2, 5, 1, 2, 1, {{E_BoostSpeed, 0.06f}, {E_Count, 0.0f}, {E_Count, 0.0f}}, {135, 0, 0}, "Overdrive", "Boost speed limit +6% per rank."},  // Overdrive
     {139, 2, 5, 1, 2, 1, {{E_BoostFade, 0.1f}, {E_Count, 0.0f}, {E_Count, 0.0f}}, {135, 136, 0}, "Last Gasp", "Boosts last 10% longer per rank."},  // Last Gasp
     {140, 0, 3, 2, 1, 1, {{E_ClimbThreshold, 25.0f}, {E_Count, 0.0f}, {E_Count, 0.0f}}, {103, 118, 0}, "Still Air", "Climbing starts at 25 degrees instead of 15."},  // Still Air
-    {141, 1, 3, 2, 1, 1, {{E_DiveThreshold, 25.0f}, {E_Count, 0.0f}, {E_Count, 0.0f}}, {116, 131, 0}, "Tucked Wings", "Diving starts at 25 degrees instead of 35."},  // Tucked Wings
+    {141, 1, 3, 2, 1, 1, {{E_DiveThreshold, 25.0f}, {E_Count, 0.0f}, {E_Count, 0.0f}}, {116, 131, 0}, "Tucked Wings", "Diving starts at 65 degrees instead of 75."},  // Tucked Wings
     {142, 2, 3, 2, 1, 1, {{E_ClimbDecel, 0.24f}, {E_Count, 0.0f}, {E_Count, 0.0f}}, {105, 129, 0}, "Rising Current", "Climbs keep 24% more of your speed."},  // Rising Current
     {143, 0, 5, 2, 2, 2, {{E_LevelSpeed, 0.04f}, {E_DiveSpeed, 0.04f}, {E_Count, 0.0f}}, {108, 123, 0}, "Skimmer", "Level and dive speed +4% per rank."},  // Skimmer
     {144, 1, 5, 2, 2, 2, {{E_BoostAdd, 0.06f}, {E_LevelSpeed, 0.03f}, {E_Count, 0.0f}}, {121, 136, 0}, "Windfall", "Boosts add 6% more speed and level speed +3%, per rank."},  // Windfall
@@ -478,10 +478,11 @@ namespace
     {
         // Every eff[] is already 1 + the summed ranks, so each line is one multiplier, applied once.
         // Durations are floored at a tenth so a stack of cuts cannot reach zero.
-        const float all = t.eff[E_SpeedAll];
-        c.climbSpeed *= all * t.eff[E_ClimbSpeed];
-        c.levelSpeed *= all * t.eff[E_LevelSpeed];
-        c.diveSpeed  *= all * t.eff[E_DiveSpeed];
+        // Bonuses add to the base percent (+6% on 200% is 206%): speed_all and the per-state key are summed, not multiplied.
+        const float all = t.eff[E_SpeedAll] - 1.0f;
+        c.climbSpeed *= 1.0f + all + (t.eff[E_ClimbSpeed] - 1.0f);
+        c.levelSpeed *= 1.0f + all + (t.eff[E_LevelSpeed] - 1.0f);
+        c.diveSpeed  *= 1.0f + all + (t.eff[E_DiveSpeed] - 1.0f);
         c.diveMs      = static_cast<uint32>(static_cast<float>(c.diveMs) * std::max(0.1f, t.eff[E_DiveMs]));
         c.glideMs     = static_cast<uint32>(static_cast<float>(c.glideMs) * t.eff[E_GlideMs]);
         c.climbDecelMs = static_cast<uint32>(static_cast<float>(c.climbDecelMs) * t.eff[E_ClimbDecel]);
@@ -489,9 +490,9 @@ namespace
         c.hoverMs     = static_cast<uint32>(static_cast<float>(c.hoverMs) * std::max(0.1f, t.eff[E_HoverMs]));
         // Boost add and ceiling take the all-speed bonus too, or a boost (a flat add under a flat ceiling) would
         // swallow every state-speed talent and leave only the Wings tree worth buying.
-        c.boostAdd   *= all * t.eff[E_BoostAdd];
+        c.boostAdd   *= 1.0f + all + (t.eff[E_BoostAdd] - 1.0f);
         c.boostAddDive = t.eff[E_BoostAddDive];
-        c.boostSpeed *= all * t.eff[E_BoostSpeed];
+        c.boostSpeed *= 1.0f + all + (t.eff[E_BoostSpeed] - 1.0f);
         c.boostFadeMs = static_cast<uint32>(static_cast<float>(c.boostFadeMs) * t.eff[E_BoostFade]);
         c.boostCarryPct = std::min(1.0f, c.boostCarryPct + (t.eff[E_BoostCarry] - 1.0f));
         c.boostGlidePct = std::min(1.0f, c.boostGlidePct + (t.eff[E_BoostGlide] - 1.0f));

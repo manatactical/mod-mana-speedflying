@@ -140,7 +140,7 @@ The linked talent opens only on its own big talent (`locked` otherwise).
 Windfall (144) and Thunderhead (145) sit on ring 5. Each one links the two neighbouring trees. Still Air and
 Tucked Wings are the two angle buffs:
 Still Air raises the climb threshold from 15 to 25 degrees, and Tucked Wings lowers the dive threshold from
-35 to 25 degrees, so a dive starts sooner. Both are read by the client from the tally.
+75 to 65 degrees, so a dive starts sooner. Both are read by the client from the tally.
 
 **Cost and cap.** Each rank costs one point. `Talents.MaxPoints` is 140 by default: the core plus at most 139
 ranks. Points cost `Talents.BaseYards` (500) yards for the first, and each one after it needs
@@ -203,7 +203,7 @@ dominates the earning. See `conf/mod-mana-speedflying.conf.dist`.
 | 138 | 5 | wings | node | Overdrive | 2 | 135, 134 | Raise the boost speed ceiling 12% per rank. |
 | 139 | 5 | wings | node | Last Gasp | 2 | 136, 135 | A boost's speed lasts 25% longer per rank. |
 | 140 | 3 | dive/glide | bridge | Still Air | 1 | 103, 118 | A glide may be 25 degrees steep before it reads as a climb. |
-| 141 | 3 | glide/wings | bridge | Tucked Wings | 1 | 116, 131 | A dive starts at 25 degrees instead of 35. |
+| 141 | 3 | glide/wings | bridge | Tucked Wings | 1 | 116, 131 | A dive starts at 65 degrees instead of 75. |
 | 142 | 3 | wings/dive | bridge | Rising Current | 1 | 105, 129 | A climb keeps 40% more of its entered speed. |
 | 143 | 5 | dive/glide | bridge | Skimmer | 2 | 108, 123 | Level and dive speed 4% higher per rank. |
 | 144 | 5 | glide/wings | bridge | Windfall | 2 | 121, 136 | Boosts add 10% more speed and level flight 3% per rank. |
